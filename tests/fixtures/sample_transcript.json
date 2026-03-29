@@ -1,0 +1,14 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\"segments\": [{\"speaker\": \"lex\", \"text\": \"Welcome to the Lex Fridman podcast. Today I'm speaking with Dr. Jane Smith, a leading researcher in artificial intelligence.\", \"start_ms\": 0, \"end_ms\": 6500}, {\"speaker\": \"guest\", \"text\": \"Thanks for having me, Lex. It's great to be here.\", \"start_ms\": 6500, \"end_ms\": 9000}, {\"speaker\": \"lex\", \"text\": \"So let's start with the big question. What is consciousness?\", \"start_ms\": 9000, \"end_ms\": 12500}, {\"speaker\": \"guest\", \"text\": \"That's a fascinating question. I think consciousness is fundamentally about information processing. When we look at neural networks, both biological and artificial, we see patterns of information flow that give rise to what we experience as awareness.\", \"start_ms\": 12500, \"end_ms\": 25000}, {\"speaker\": \"lex\", \"text\": \"Do you think we'll ever create conscious AI?\", \"start_ms\": 25000, \"end_ms\": 28000}, {\"speaker\": \"guest\", \"text\": \"I believe it's possible, but we need to be very careful about how we define consciousness first. There's a difference between functional consciousness, the ability to process and respond to information in sophisticated ways, and phenomenal consciousness, the subjective experience of what it's like to be something. Current AI systems may have aspects of the former but almost certainly lack the latter.\", \"start_ms\": 28000, \"end_ms\": 48000}, {\"speaker\": \"lex\", \"text\": \"That's a beautiful way to put it. Let me ask you about your recent paper on transformer architectures.\", \"start_ms\": 48000, \"end_ms\": 53000}, {\"speaker\": \"guest\", \"text\": \"Yes, so in that paper we showed that attention mechanisms in transformers can be viewed as a form of learned information routing. The key insight is that self-attention allows the model to dynamically decide which parts of the input are relevant to each other, creating a kind of flexible information highway.\", \"start_ms\": 53000, \"end_ms\": 70000}]}"
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ]
+}

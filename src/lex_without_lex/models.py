@@ -22,3 +22,18 @@ class EpisodeState(BaseModel):
     output_path: str | None = None
     b2_url: str | None = None
     status: str = "new"  # new | downloaded | transcribed | edited | assembled | uploaded
+
+
+class TranscriptSegment(BaseModel):
+    """A contiguous segment of speech by one speaker."""
+
+    speaker: str  # "lex" or "guest"
+    text: str
+    start_ms: int
+    end_ms: int
+
+
+class Transcript(BaseModel):
+    episode_guid: str
+    segments: list[TranscriptSegment]
+    raw_response: dict | None = None
