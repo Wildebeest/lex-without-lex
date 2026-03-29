@@ -43,7 +43,8 @@ async def process_new_episodes(settings: Settings | None = None) -> None:
     state = load_state(state_file)
 
     episodes = await get_episodes(settings.feed_url)
-    logger.info("Found %d episodes in feed", len(episodes))
+    episodes = [e for e in episodes if e.published >= settings.episodes_after]
+    logger.info("Found %d episodes after %s", len(episodes), settings.episodes_after.date())
 
     for episode in episodes:
         if episode.guid in state and state[episode.guid].status == "uploaded":
