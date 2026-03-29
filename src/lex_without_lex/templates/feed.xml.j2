@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Lex Without Lex</title>
+    <link>{{ base_url }}</link>
+    <description>The Lex Fridman Podcast, edited to feature only the guest. Powered by AI editing.</description>
+    <language>en-us</language>
+    <itunes:author>Lex Without Lex (Automated)</itunes:author>
+    <itunes:category text="Technology"/>
+    <itunes:explicit>false</itunes:explicit>
+    {% for ep in episodes %}
+    <item>
+      <title>{{ ep.episode.title | e }}</title>
+      <guid isPermaLink="false">lwl-{{ ep.episode.guid | e }}</guid>
+      <pubDate>{{ ep.episode.published.strftime('%a, %d %b %Y %H:%M:%S +0000') }}</pubDate>
+      <description>{{ ep.episode.description | e }} (Guest-only edit)</description>
+      <enclosure url="{{ ep.b2_url | e }}" type="audio/mpeg" length="0"/>
+      <itunes:duration>{{ ep.episode.duration_seconds or 0 }}</itunes:duration>
+    </item>
+    {% endfor %}
+  </channel>
+</rss>
