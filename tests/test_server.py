@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from xml.etree import ElementTree
 
 import pytest
@@ -113,3 +113,123 @@ class TestRenderFeedXml:
         title = root.find(".//channel/title")
         assert title is not None
         assert "Lex Without Lex" in title.text
+
+
+def _make_episodes():
+    """Helper to create test episodes with varying dates."""
+    return [
+        Episode(
+            guid="ep-new",
+            title="New Episode",
+            published=datetime(2026, 3, 25, tzinfo=timezone.utc),
+            audio_url="https://example.com/new.mp3",
+            duration_seconds=3600,
+            description="A new episode.",
+        ),
+        Episode(
+            guid="ep-old-1",
+            title="Old Episode One",
+            published=datetime(2026, 1, 10, tzinfo=timezone.utc),
+            audio_url="https://example.com/old1.mp3",
+            duration_seconds=7200,
+            description="An old episode.",
+        ),
+        Episode(
+            guid="ep-old-2",
+            title="Old Episode Two",
+            published=datetime(2025, 6, 5, tzinfo=timezone.utc),
+            audio_url="https://example.com/old2.mp3",
+            duration_seconds=5400,
+            description="Another old episode.",
+        ),
+    ]
+
+
+class TestTriggerProcessing:
+    def test_returns_202(self, client):
+        with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock):
+            resp = client.post("/process")
+        assert resp.status_code == 202
+        assert resp.json() == {"status": "processing"}
+
+    def test_calls_process_new_episodes(self, client):
+        with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock) as mock_proc:
+            client.post("/process")
+        mock_proc.assert_called_once()
+
+
+class TestListEpisodes:
+    def test_returns_episodes_with_status(self, client, tmp_path):
+        episodes = _make_episodes()
+        state = {
+            "ep-new": EpisodeState(episode=episodes[0], status="uploaded"),
+        }
+
+        with (
+            patch("lex_without_lex.server.get_episodes", new_callable=AsyncMock, return_value=episodes),
+            patch("lex_without_lex.server.settings") as mock_settings,
+        ):
+            mock_settings.feed_url = "https://example.com/feed"
+            mock_settings.data_dir = tmp_path
+            mock_settings.episodes_after = datetime(2026, 3, 20, tzinfo=timezone.utc)
+
+            from lex_without_lex.pipeline import save_state
+            save_state(state, tmp_path / "state.json")
+
+            resp = client.get("/episodes")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["episodes"]) == 3
+
+        by_guid = {ep["guid"]: ep for ep in data["episodes"]}
+        assert by_guid["ep-new"]["status"] == "uploaded"
+        assert by_guid["ep-new"]["after_cutoff"] is True
+        assert by_guid["ep-old-1"]["status"] is None
+        assert by_guid["ep-old-1"]["after_cutoff"] is False
+        assert by_guid["ep-old-2"]["after_cutoff"] is False
+
+    def test_empty_feed(self, client, tmp_path):
+        with (
+            patch("lex_without_lex.server.get_episodes", new_callable=AsyncMock, return_value=[]),
+            patch("lex_without_lex.server.settings") as mock_settings,
+        ):
+            mock_settings.feed_url = "https://example.com/feed"
+            mock_settings.data_dir = tmp_path
+            mock_settings.episodes_after = datetime(2026, 3, 20, tzinfo=timezone.utc)
+            resp = client.get("/episodes")
+
+        assert resp.status_code == 200
+        assert resp.json()["episodes"] == []
+
+
+class TestProcessSpecificEpisodes:
+    def test_returns_202_with_guids(self, client):
+        with patch(
+            "lex_without_lex.server._process_selected_episodes", new_callable=AsyncMock
+        ):
+            resp = client.post("/episodes/process", json={"guids": ["ep-old-1", "ep-old-2"]})
+
+        assert resp.status_code == 202
+        data = resp.json()
+        assert data["status"] == "processing"
+        assert data["guids"] == ["ep-old-1", "ep-old-2"]
+
+    def test_calls_helper_with_guids(self, client):
+        with patch(
+            "lex_without_lex.server._process_selected_episodes", new_callable=AsyncMock
+        ) as mock_proc:
+            client.post("/episodes/process", json={"guids": ["ep-old-1"]})
+
+        mock_proc.assert_called_once()
+        args = mock_proc.call_args
+        assert args[0][0] == ["ep-old-1"]
+
+    def test_empty_guids(self, client):
+        with patch(
+            "lex_without_lex.server._process_selected_episodes", new_callable=AsyncMock
+        ):
+            resp = client.post("/episodes/process", json={"guids": []})
+
+        assert resp.status_code == 202
+        assert resp.json()["guids"] == []
