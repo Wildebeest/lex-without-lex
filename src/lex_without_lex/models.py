@@ -37,3 +37,29 @@ class Transcript(BaseModel):
     episode_guid: str
     segments: list[TranscriptSegment]
     raw_response: dict | None = None
+
+
+class SegmentAction(BaseModel):
+    """An action on a time range of the source audio."""
+
+    action: str  # "keep" or "cut"
+    start_ms: int
+    end_ms: int
+    speaker: str = ""
+    reason: str = ""
+
+
+class Interjection(BaseModel):
+    """A TTS interjection to insert at a specific point."""
+
+    insert_after_ms: int  # insertion point in source timeline
+    text: str  # text for TTS
+    context: str = ""  # why this interjection is needed
+
+
+class EditList(BaseModel):
+    episode_guid: str
+    segments: list[SegmentAction]
+    interjections: list[Interjection]
+    summary: str = ""
+    raw_response: str = ""

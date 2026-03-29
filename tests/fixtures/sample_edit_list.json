@@ -1,0 +1,18 @@
+{
+  "segments": [
+    {"action": "cut", "start_ms": 0, "end_ms": 6500, "speaker": "lex", "reason": "Host introduction"},
+    {"action": "keep", "start_ms": 6500, "end_ms": 9000, "speaker": "guest", "reason": "Guest greeting"},
+    {"action": "cut", "start_ms": 9000, "end_ms": 12500, "speaker": "lex", "reason": "Lex asks about consciousness"},
+    {"action": "keep", "start_ms": 12500, "end_ms": 25000, "speaker": "guest", "reason": "Guest discusses consciousness"},
+    {"action": "cut", "start_ms": 25000, "end_ms": 28000, "speaker": "lex", "reason": "Lex asks about conscious AI"},
+    {"action": "keep", "start_ms": 28000, "end_ms": 48000, "speaker": "guest", "reason": "Guest discusses conscious AI"},
+    {"action": "cut", "start_ms": 48000, "end_ms": 53000, "speaker": "lex", "reason": "Lex asks about transformer paper"},
+    {"action": "keep", "start_ms": 53000, "end_ms": 70000, "speaker": "guest", "reason": "Guest discusses transformer architectures"}
+  ],
+  "interjections": [
+    {"insert_after_ms": 12500, "text": "On the topic of consciousness...", "context": "Lex asked what consciousness is, guest needs context"},
+    {"insert_after_ms": 28000, "text": "When asked about creating conscious AI...", "context": "Lex asked if we'll ever create conscious AI"},
+    {"insert_after_ms": 53000, "text": "Regarding their recent paper on transformer architectures...", "context": "Lex asked about the guest's transformer paper"}
+  ],
+  "summary": "Removed 4 Lex segments, kept 4 guest segments, added 3 interjections for context."
+}
