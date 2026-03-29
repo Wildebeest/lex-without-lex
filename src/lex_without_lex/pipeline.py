@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import timezone
 from pathlib import Path
 
 import httpx
@@ -43,7 +44,10 @@ async def process_new_episodes(settings: Settings | None = None) -> None:
     state = load_state(state_file)
 
     episodes = await get_episodes(settings.feed_url)
-    episodes = [e for e in episodes if e.published >= settings.episodes_after]
+    cutoff = settings.episodes_after
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+    episodes = [e for e in episodes if e.published >= cutoff]
     logger.info("Found %d episodes after %s", len(episodes), settings.episodes_after.date())
 
     for episode in episodes:

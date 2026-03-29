@@ -21,7 +21,7 @@ async def download_episode(
         return dest
 
     if client is None:
-        async with httpx.AsyncClient() as c:
+        async with httpx.AsyncClient(follow_redirects=True) as c:
             return await _do_download(c, url, dest, chunk_size)
     return await _do_download(client, url, dest, chunk_size)
 
