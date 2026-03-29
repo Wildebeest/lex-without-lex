@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import subprocess
+import tempfile
+from pathlib import Path
+
+from .models import EditList
+
+
+def assemble_audio(
+    source_path: Path,
+    edit_list: EditList,
+    interjection_paths: dict[int, Path],
+    output_path: Path,
+) -> Path:
+    """Reconstruct audio based on edit list + interjections.
+
+    1. Extract each "keep" segment from source
+    2. Interleave interjection audio at the right points
+    3. Concatenate all pieces
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    keep_segments = sorted(
+        [s for s in edit_list.segments if s.action == "keep"],
+        key=lambda s: s.start_ms,
+    )
+
+    if not keep_segments:
+        raise ValueError("No segments to keep in edit list")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        pieces: list[Path] = []
+
+        for i, seg in enumerate(keep_segments):
+            # Check if an interjection should be inserted before this segment
+            if seg.start_ms in interjection_paths:
+                inj_path = interjection_paths[seg.start_ms]
+                # Re-encode interjection to match source format
+                normalized = tmp / f"interjection_{i}.mp3"
+                _normalize_audio(inj_path, normalized)
+                pieces.append(normalized)
+
+            # Extract this segment
+            seg_path = tmp / f"segment_{i}.mp3"
+            _extract_segment(source_path, seg.start_ms, seg.end_ms, seg_path)
+            pieces.append(seg_path)
+
+        # Concatenate all pieces
+        _concat_files(pieces, output_path)
+
+    return output_path
+
+
+def _extract_segment(
+    source: Path, start_ms: int, end_ms: int, output: Path
+) -> Path:
+    """Extract a time segment from source audio using ffmpeg."""
+    start_sec = start_ms / 1000.0
+    duration_sec = (end_ms - start_ms) / 1000.0
+
+    _run_ffmpeg([
+        "ffmpeg", "-y",
+        "-ss", f"{start_sec:.3f}",
+        "-i", str(source),
+        "-t", f"{duration_sec:.3f}",
+        "-acodec", "libmp3lame",
+        "-ar", "44100",
+        "-ac", "1",
+        str(output),
+    ])
+    return output
+
+
+def _normalize_audio(source: Path, output: Path) -> Path:
+    """Re-encode audio to consistent format (44.1kHz mono mp3)."""
+    _run_ffmpeg([
+        "ffmpeg", "-y",
+        "-i", str(source),
+        "-acodec", "libmp3lame",
+        "-ar", "44100",
+        "-ac", "1",
+        str(output),
+    ])
+    return output
+
+
+def _concat_files(file_list: list[Path], output: Path) -> Path:
+    """Concatenate audio files using ffmpeg concat demuxer."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        concat_file = Path(f.name)
+        for fp in file_list:
+            f.write(f"file '{fp}'\n")
+
+    try:
+        _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+            "-acodec", "libmp3lame",
+            "-ar", "44100",
+            "-ac", "1",
+            str(output),
+        ])
+    finally:
+        concat_file.unlink(missing_ok=True)
+
+    return output
+
+
+def build_concat_list(
+    keep_segments: list[tuple[int, Path]],
+    interjection_paths: dict[int, Path],
+) -> list[Path]:
+    """Order segments and interjections chronologically.
+
+    keep_segments: list of (start_ms, file_path) tuples, sorted by start_ms
+    interjection_paths: mapping of insert_after_ms -> audio file path
+    """
+    result: list[Path] = []
+    for start_ms, seg_path in keep_segments:
+        if start_ms in interjection_paths:
+            result.append(interjection_paths[start_ms])
+        result.append(seg_path)
+    return result
+
+
+def _run_ffmpeg(args: list[str]) -> subprocess.CompletedProcess:
+    """Run ffmpeg subprocess, raise on error."""
+    result = subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {result.stderr}")
+    return result
