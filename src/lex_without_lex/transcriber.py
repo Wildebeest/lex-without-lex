@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
+import tempfile
 from pathlib import Path
 
 import httpx
 
 from .models import Transcript, TranscriptSegment
 
+logger = logging.getLogger(__name__)
+
 GEMINI_UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MiB
+TRANSCRIPTION_CHUNK_MS = 30 * 60 * 1000  # 30 minutes per chunk
 
 TRANSCRIPTION_PROMPT = """\
 You are a professional podcast transcription service. Transcribe the provided audio with detailed speaker diarization and precise timestamps.
@@ -49,11 +54,62 @@ async def transcribe_episode(
     episode_guid: str = "",
     client: httpx.AsyncClient | None = None,
 ) -> Transcript:
-    """Upload audio to Gemini and get back a diarized transcript."""
+    """Upload audio to Gemini and get back a diarized transcript.
+
+    For long episodes that exceed Gemini's output token limit, automatically
+    splits the audio into chunks and transcribes each separately.
+    """
     if client is None:
         async with httpx.AsyncClient(timeout=600.0) as c:
-            return await _do_transcribe(c, audio_path, api_key, episode_guid)
-    return await _do_transcribe(client, audio_path, api_key, episode_guid)
+            return await _transcribe_with_chunking(c, audio_path, api_key, episode_guid)
+    return await _transcribe_with_chunking(client, audio_path, api_key, episode_guid)
+
+
+async def _transcribe_with_chunking(
+    client: httpx.AsyncClient,
+    audio_path: Path,
+    api_key: str,
+    episode_guid: str,
+) -> Transcript:
+    """Try single transcription, fall back to chunked on MAX_TOKENS."""
+    try:
+        return await _do_transcribe(client, audio_path, api_key, episode_guid)
+    except ValueError as e:
+        if "MAX_TOKENS" not in str(e):
+            raise
+
+    # Episode too long — split into chunks and transcribe each
+    from .audio import split_audio
+
+    logger.info("Transcription truncated, splitting audio into chunks")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        chunks = split_audio(audio_path, TRANSCRIPTION_CHUNK_MS, Path(tmpdir))
+        logger.info("Split into %d chunks", len(chunks))
+
+        all_segments: list[TranscriptSegment] = []
+        raw_responses: list[dict] = []
+
+        for chunk_path, offset_ms in chunks:
+            logger.info("Transcribing chunk at offset %d ms", offset_ms)
+            transcript = await _do_transcribe(
+                client, chunk_path, api_key, episode_guid
+            )
+            # Adjust timestamps to absolute positions
+            for seg in transcript.segments:
+                all_segments.append(TranscriptSegment(
+                    speaker=seg.speaker,
+                    text=seg.text,
+                    start_ms=seg.start_ms + offset_ms,
+                    end_ms=seg.end_ms + offset_ms,
+                ))
+            raw_responses.append(transcript.raw_response)
+
+    all_segments.sort(key=lambda s: s.start_ms)
+    return Transcript(
+        episode_guid=episode_guid,
+        segments=all_segments,
+        raw_response={"chunked": True, "chunks": raw_responses},
+    )
 
 
 async def _do_transcribe(

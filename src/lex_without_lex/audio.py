@@ -127,6 +127,53 @@ def build_concat_list(
     return result
 
 
+def get_audio_duration_ms(source: Path) -> int:
+    """Return duration of audio file in milliseconds using ffprobe."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed: {result.stderr}")
+    return int(float(result.stdout.strip()) * 1000)
+
+
+def split_audio(
+    source: Path, chunk_duration_ms: int, output_dir: Path
+) -> list[tuple[Path, int]]:
+    """Split audio into chunks. Returns list of (chunk_path, offset_ms) pairs."""
+    total_ms = get_audio_duration_ms(source)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    chunks: list[tuple[Path, int]] = []
+    offset = 0
+    i = 0
+    while offset < total_ms:
+        chunk_path = output_dir / f"chunk_{i}.mp3"
+        duration = min(chunk_duration_ms, total_ms - offset)
+        _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-ss", f"{offset / 1000.0:.3f}",
+            "-i", str(source),
+            "-t", f"{duration / 1000.0:.3f}",
+            "-acodec", "libmp3lame",
+            "-ar", "44100",
+            "-ac", "1",
+            str(chunk_path),
+        ])
+        chunks.append((chunk_path, offset))
+        offset += chunk_duration_ms
+        i += 1
+
+    return chunks
+
+
 def _run_ffmpeg(args: list[str]) -> subprocess.CompletedProcess:
     """Run ffmpeg subprocess, raise on error."""
     result = subprocess.run(
