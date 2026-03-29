@@ -11,6 +11,8 @@ from .models import Transcript, TranscriptSegment
 GEMINI_UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
+UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MiB
+
 TRANSCRIPTION_PROMPT = """\
 You are a professional podcast transcription service. Transcribe the provided audio with detailed speaker diarization and precise timestamps.
 
@@ -112,18 +114,29 @@ async def _upload_audio_to_gemini(
     resp.raise_for_status()
     upload_url = resp.headers["X-Goog-Upload-URL"]
 
-    # Upload file bytes
-    data = audio_path.read_bytes()
-    resp = await client.put(
-        upload_url,
-        headers={
-            "X-Goog-Upload-Command": "upload, finalize",
-            "X-Goog-Upload-Offset": "0",
-            "Content-Type": mime_type,
-        },
-        content=data,
-    )
-    resp.raise_for_status()
+    # Upload file bytes in chunks to avoid loading entire file into memory
+    offset = 0
+    resp = None
+    with open(audio_path, "rb") as f:
+        while offset < file_size:
+            chunk = f.read(UPLOAD_CHUNK_SIZE)
+            if not chunk:
+                break
+            is_last = offset + len(chunk) >= file_size
+            command = "upload, finalize" if is_last else "upload"
+            resp = await client.put(
+                upload_url,
+                headers={
+                    "X-Goog-Upload-Command": command,
+                    "X-Goog-Upload-Offset": str(offset),
+                    "Content-Length": str(len(chunk)),
+                    "Content-Type": mime_type,
+                },
+                content=chunk,
+            )
+            resp.raise_for_status()
+            offset += len(chunk)
+
     result = resp.json()
     return result["file"]["uri"]
 

@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 
+import lex_without_lex.transcriber as transcriber_mod
 from lex_without_lex.transcriber import (
     GEMINI_API_URL,
     GEMINI_UPLOAD_URL,
@@ -128,3 +129,40 @@ class TestTranscribeEpisode:
         async with httpx.AsyncClient() as client:
             with pytest.raises(httpx.HTTPStatusError):
                 await transcribe_episode(audio_path, "fake-key", "ep-001", client=client)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_chunked_upload(self, tmp_path, sample_gemini_response, monkeypatch):
+        """Upload is split into multiple chunks when file exceeds chunk size."""
+        monkeypatch.setattr(transcriber_mod, "UPLOAD_CHUNK_SIZE", 8)
+
+        audio_path = tmp_path / "test.mp3"
+        audio_path.write_bytes(b"a" * 20)  # 20 bytes → 3 chunks (8+8+4)
+
+        upload_url = "https://storage.googleapis.com/upload/fake"
+        respx.post(GEMINI_UPLOAD_URL).respond(
+            200,
+            headers={"X-Goog-Upload-URL": upload_url},
+        )
+        put_route = respx.put(upload_url).respond(
+            200,
+            json={"file": {"uri": "gs://bucket/test.mp3"}},
+        )
+        respx.post(GEMINI_API_URL).respond(200, json=sample_gemini_response)
+
+        async with httpx.AsyncClient() as client:
+            transcript = await transcribe_episode(
+                audio_path, "fake-api-key", "ep-001", client=client
+            )
+
+        assert transcript.episode_guid == "ep-001"
+        assert put_route.call_count == 3
+
+        # Verify chunk offsets and commands
+        calls = put_route.calls
+        assert calls[0].request.headers["x-goog-upload-offset"] == "0"
+        assert calls[0].request.headers["x-goog-upload-command"] == "upload"
+        assert calls[1].request.headers["x-goog-upload-offset"] == "8"
+        assert calls[1].request.headers["x-goog-upload-command"] == "upload"
+        assert calls[2].request.headers["x-goog-upload-offset"] == "16"
+        assert calls[2].request.headers["x-goog-upload-command"] == "upload, finalize"
