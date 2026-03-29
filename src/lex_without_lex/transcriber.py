@@ -77,6 +77,7 @@ async def _do_transcribe(
         ],
         "generationConfig": {
             "temperature": 0.1,
+            "maxOutputTokens": 65536,
             "responseMimeType": "application/json",
         },
     }
@@ -147,6 +148,13 @@ def parse_gemini_response(response: dict, episode_guid: str = "") -> Transcript:
     candidates = response.get("candidates", [])
     if not candidates:
         raise ValueError("No candidates in Gemini response")
+
+    finish_reason = candidates[0].get("finishReason", "")
+    if finish_reason == "MAX_TOKENS":
+        raise ValueError(
+            "Gemini response was truncated (MAX_TOKENS). "
+            "The episode may be too long for a single transcription request."
+        )
 
     content = candidates[0].get("content", {})
     parts = content.get("parts", [])

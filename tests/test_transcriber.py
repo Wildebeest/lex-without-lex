@@ -53,6 +53,12 @@ class TestParseGeminiResponse:
         with pytest.raises(ValueError, match="No parts"):
             parse_gemini_response({"candidates": [{"content": {"parts": []}}]})
 
+    def test_raises_on_max_tokens(self):
+        with pytest.raises(ValueError, match="truncated"):
+            parse_gemini_response({
+                "candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "{}"}]}}]
+            })
+
 
 class TestStripCodeFences:
     def test_strips_json_fences(self):
