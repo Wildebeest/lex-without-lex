@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Response
@@ -118,8 +118,15 @@ async def list_episodes():
     state_file = settings.data_dir / "state.json"
     state = load_state(state_file)
 
+    cutoff = settings.episodes_after
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+
     items = []
     for ep in episodes:
+        pub = ep.published
+        if pub.tzinfo is None:
+            pub = pub.replace(tzinfo=timezone.utc)
         existing = state.get(ep.guid)
         items.append(
             EpisodeInfo(
@@ -129,7 +136,7 @@ async def list_episodes():
                 duration_seconds=ep.duration_seconds,
                 description=ep.description,
                 status=existing.status if existing else None,
-                after_cutoff=ep.published >= settings.episodes_after,
+                after_cutoff=pub >= cutoff,
             )
         )
 

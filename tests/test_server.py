@@ -189,6 +189,26 @@ class TestListEpisodes:
         assert by_guid["ep-old-1"]["after_cutoff"] is False
         assert by_guid["ep-old-2"]["after_cutoff"] is False
 
+    def test_handles_naive_cutoff_datetime(self, client, tmp_path):
+        """Cutoff from config is naive; feed dates are tz-aware. Should not crash."""
+        episodes = _make_episodes()
+
+        with (
+            patch("lex_without_lex.server.get_episodes", new_callable=AsyncMock, return_value=episodes),
+            patch("lex_without_lex.server.settings") as mock_settings,
+        ):
+            mock_settings.feed_url = "https://example.com/feed"
+            mock_settings.data_dir = tmp_path
+            mock_settings.episodes_after = datetime(2026, 3, 20)  # naive
+
+            (tmp_path / "state.json").write_text("{}")
+            resp = client.get("/episodes")
+
+        assert resp.status_code == 200
+        by_guid = {ep["guid"]: ep for ep in resp.json()["episodes"]}
+        assert by_guid["ep-new"]["after_cutoff"] is True
+        assert by_guid["ep-old-1"]["after_cutoff"] is False
+
     def test_empty_feed(self, client, tmp_path):
         with (
             patch("lex_without_lex.server.get_episodes", new_callable=AsyncMock, return_value=[]),
