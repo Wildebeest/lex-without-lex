@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -8,6 +9,7 @@ class Settings(BaseSettings):
 
     feed_url: str = "https://lexfridman.com/feed/podcast/"
     data_dir: Path = Path("data")
+    episodes_after: datetime = datetime(2026, 3, 20)
 
     gemini_api_key: str = ""
     anthropic_api_key: str = ""
