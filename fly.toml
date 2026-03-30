@@ -1,5 +1,7 @@
 app = "lex-without-lex"
 primary_region = "iad"
+kill_signal = "SIGINT"
+kill_timeout = 300
 
 [build]
 
@@ -8,7 +10,7 @@ primary_region = "iad"
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
 [mounts]
   source = "data"
