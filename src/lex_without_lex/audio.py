@@ -6,9 +6,85 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .models import EditList
+from .models import EditList, SegmentAction
 
 logger = logging.getLogger(__name__)
+
+
+def _build_filter_graph(
+    keep_segments: list[SegmentAction],
+    interjection_paths: dict[int, Path],
+) -> tuple[list[Path], str, str]:
+    """Build FFmpeg complex filter graph for single-pass assembly.
+
+    Returns:
+        extra_inputs: interjection file Paths in input order (source is input 0)
+        filter_complex: the -filter_complex string
+        output_label: the label to -map (always "[out]")
+    """
+    filters: list[str] = []
+    concat_labels: list[str] = []
+    extra_inputs: list[Path] = []
+    # Map interjection start_ms -> input index (starting from 1, since 0 is source)
+    inj_input_idx: dict[int, int] = {}
+
+    # Assign input indices to interjections in chronological order
+    for seg in keep_segments:
+        if seg.start_ms in interjection_paths and seg.start_ms not in inj_input_idx:
+            idx = len(extra_inputs) + 1  # input 0 is source
+            inj_input_idx[seg.start_ms] = idx
+            extra_inputs.append(interjection_paths[seg.start_ms])
+
+    # Build filter chains
+    inj_counter = 0
+    for i, seg in enumerate(keep_segments):
+        # Interjection before this segment
+        if seg.start_ms in inj_input_idx:
+            inp_idx = inj_input_idx[seg.start_ms]
+            inj_label = f"inj{inj_counter}"
+            filters.append(
+                f"[{inp_idx}:a]aformat=sample_rates=44100:channel_layouts=mono[{inj_label}]"
+            )
+            concat_labels.append(f"[{inj_label}]")
+            inj_counter += 1
+
+        # Segment from source
+        start_s = seg.start_ms / 1000.0
+        end_s = seg.end_ms / 1000.0
+        seg_label = f"seg{i}"
+        filters.append(
+            f"[0:a]atrim=start={start_s:.3f}:end={end_s:.3f},"
+            f"asetpts=PTS-STARTPTS,"
+            f"aformat=sample_rates=44100:channel_layouts=mono[{seg_label}]"
+        )
+        concat_labels.append(f"[{seg_label}]")
+
+    n = len(concat_labels)
+    concat_line = f"{''.join(concat_labels)}concat=n={n}:v=0:a=1[out]"
+    filters.append(concat_line)
+
+    filter_complex = ";\n".join(filters)
+    return extra_inputs, filter_complex, "[out]"
+
+
+def _build_ffmpeg_command(
+    source_path: Path,
+    extra_inputs: list[Path],
+    filter_complex: str,
+    output_label: str,
+    output_path: Path,
+) -> list[str]:
+    """Build the full ffmpeg command for complex filter assembly."""
+    cmd = ["ffmpeg", "-y", "-i", str(source_path)]
+    for inp in extra_inputs:
+        cmd.extend(["-i", str(inp)])
+    cmd.extend([
+        "-filter_complex", filter_complex,
+        "-map", output_label,
+        "-acodec", "libmp3lame",
+        str(output_path),
+    ])
+    return cmd
 
 
 async def assemble_audio(
@@ -19,9 +95,8 @@ async def assemble_audio(
 ) -> Path:
     """Reconstruct audio based on edit list + interjections.
 
-    1. Extract each "keep" segment from source
-    2. Interleave interjection audio at the right points
-    3. Concatenate all pieces
+    Uses a single FFmpeg complex filter graph to extract, normalize, and
+    concatenate all segments in one pass — no intermediate files.
 
     Runs ffmpeg in a thread pool to avoid blocking the async event loop.
     """
@@ -35,33 +110,18 @@ async def assemble_audio(
     if not keep_segments:
         raise ValueError("No segments to keep in edit list")
 
-    logger.info("Assembling %d keep segments with %d interjections",
-                len(keep_segments), len(interjection_paths))
+    extra_inputs, filter_complex, output_label = _build_filter_graph(
+        keep_segments, interjection_paths,
+    )
+    cmd = _build_ffmpeg_command(
+        source_path, extra_inputs, filter_complex, output_label, output_path,
+    )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        pieces: list[Path] = []
-
-        for i, seg in enumerate(keep_segments):
-            # Check if an interjection should be inserted before this segment
-            if seg.start_ms in interjection_paths:
-                inj_path = interjection_paths[seg.start_ms]
-                normalized = tmp / f"interjection_{i}.mp3"
-                await asyncio.to_thread(_normalize_audio, inj_path, normalized)
-                pieces.append(normalized)
-
-            seg_path = tmp / f"segment_{i}.mp3"
-            await asyncio.to_thread(
-                _extract_segment, source_path, seg.start_ms, seg.end_ms, seg_path
-            )
-            pieces.append(seg_path)
-
-            if (i + 1) % 50 == 0:
-                logger.info("Extracted %d/%d segments", i + 1, len(keep_segments))
-
-        logger.info("Extracted all %d segments, concatenating...", len(pieces))
-        await asyncio.to_thread(_concat_files, pieces, output_path)
-
+    logger.info(
+        "Assembling %d segments + %d interjections in single FFmpeg pass",
+        len(keep_segments), len(interjection_paths),
+    )
+    await asyncio.to_thread(_run_ffmpeg, cmd)
     logger.info("Assembly complete: %s", output_path.name)
     return output_path
 
