@@ -1,23 +1,59 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"
      xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
-     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:podcast="https://podcastindex.org/namespace/1.0">
   <channel>
     <title>Lex Without Lex</title>
     <link>{{ base_url }}</link>
     <description>The Lex Fridman Podcast, edited to feature only the guest. Powered by AI editing.</description>
     <language>en-us</language>
+    <lastBuildDate>{{ now.strftime('%a, %d %b %Y %H:%M:%S +0000') }}</lastBuildDate>
+    <atom:link href="{{ base_url }}/feed.xml" rel="self" type="application/rss+xml"/>
     <itunes:author>Lex Without Lex (Automated)</itunes:author>
-    <itunes:category text="Technology"/>
+    <itunes:image href="https://lexfridman.com/wordpress/wp-content/uploads/powerpress/artwork_3000-230.png"/>
+    <itunes:owner>
+      <itunes:name>Lex Without Lex</itunes:name>
+    </itunes:owner>
     <itunes:explicit>false</itunes:explicit>
+    <itunes:category text="Technology"/>
+    <itunes:category text="Science"/>
+    <itunes:category text="Society &amp; Culture">
+      <itunes:category text="Philosophy"/>
+    </itunes:category>
+    <podcast:medium>podcast</podcast:medium>
+    <image>
+      <title>Lex Without Lex</title>
+      <url>https://lexfridman.com/wordpress/wp-content/uploads/powerpress/artwork_3000-230.png</url>
+      <link>{{ base_url }}</link>
+    </image>
     {% for ep in episodes %}
     <item>
       <title>{{ ep.episode.title | e }}</title>
       <guid isPermaLink="false">lwl-{{ ep.episode.guid | e }}</guid>
       <pubDate>{{ ep.episode.published.strftime('%a, %d %b %Y %H:%M:%S +0000') }}</pubDate>
+      {% if ep.episode.link %}<link>{{ ep.episode.link | e }}</link>{% endif %}
       <description>{{ ep.episode.description | e }} (Guest-only edit)</description>
-      <enclosure url="{{ download_urls.get(ep.episode.guid, ep.b2_url) | e }}" type="audio/mpeg" length="{{ ep.output_size_bytes or 0 }}"/>
-      <itunes:duration>{{ ep.episode.duration_seconds or 0 }}</itunes:duration>
+      {% if ep.episode.content_encoded %}
+      <content:encoded><![CDATA[{{ ep.episode.content_encoded }} <p><em>(Guest-only edit by Lex Without Lex)</em></p>]]></content:encoded>
+      {% endif %}
+      <enclosure url="{{ base_url }}/episodes/{{ ep.episode.guid | urlencode }}/audio" type="audio/mpeg" length="{{ ep.output_size_bytes or 0 }}"/>
+      {% if ep.output_duration_seconds %}
+      <itunes:duration>{{ '%d:%02d:%02d' | format(ep.output_duration_seconds // 3600, (ep.output_duration_seconds % 3600) // 60, ep.output_duration_seconds % 60) }}</itunes:duration>
+      {% elif ep.episode.duration_seconds %}
+      <itunes:duration>{{ '%d:%02d:%02d' | format(ep.episode.duration_seconds // 3600, (ep.episode.duration_seconds % 3600) // 60, ep.episode.duration_seconds % 60) }}</itunes:duration>
+      {% endif %}
+      <itunes:author>{{ ep.episode.itunes_author | default('Lex Fridman', true) | e }}</itunes:author>
+      <itunes:episodeType>{{ ep.episode.itunes_episode_type | default('full', true) }}</itunes:episodeType>
+      {% if ep.episode.itunes_image_url %}
+      <itunes:image href="{{ ep.episode.itunes_image_url | e }}"/>
+      {% endif %}
+      {% if ep.episode.episode_number %}
+      <itunes:episode>{{ ep.episode.episode_number }}</itunes:episode>
+      {% endif %}
+      <itunes:summary>{{ ep.episode.description | e | truncate(255) }}</itunes:summary>
+      <podcast:chapters url="{{ base_url }}/episodes/{{ ep.episode.guid | urlencode }}/chapters.json" type="application/json+chapters"/>
     </item>
     {% endfor %}
   </channel>

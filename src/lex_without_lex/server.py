@@ -9,14 +9,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 
 from .config import Settings
+from .chapters import parse_chapters_from_description, remap_chapters, chapters_to_json
 from .feed_parser import get_episodes
-from .models import EpisodeState
+from .models import EditList, EpisodeState
 from .pipeline import load_state, process_episode, process_new_episodes, save_state
+from .storage import B2Storage
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -72,38 +74,74 @@ async def podcast_feed() -> Response:
         reverse=True,
     )
 
-    # Generate authorized download URLs for private B2 bucket
-    from .storage import B2Storage
-    storage = B2Storage(
-        settings.b2_key_id,
-        settings.b2_application_key,
-        settings.b2_bucket_name,
-    )
-    download_urls = {}
-    for ep in episodes:
-        # Backfill b2_file_name for episodes uploaded before this field existed
-        if not ep.b2_file_name:
-            safe = ep.episode.guid.replace("/", "_").replace(":", "_")
-            ep.b2_file_name = f"episodes/{safe}.mp3"
-        download_urls[ep.episode.guid] = storage.get_download_auth_url(ep.b2_file_name)
-
-    xml = render_feed_xml(episodes, settings, download_urls)
+    xml = render_feed_xml(episodes, settings)
     return Response(content=xml, media_type="application/xml")
 
 
 def render_feed_xml(
     episodes: list[EpisodeState],
     settings: Settings,
-    download_urls: dict[str, str] | None = None,
 ) -> str:
     """Render RSS XML using Jinja2 template."""
     env = _get_jinja_env()
     template = env.get_template("feed.xml.j2")
+    now = datetime.now(tz=timezone.utc)
     return template.render(
         episodes=episodes,
         base_url=settings.base_url,
-        download_urls=download_urls or {},
+        now=now,
     )
+
+
+@app.get("/episodes/{episode_id:path}/audio")
+async def episode_audio(episode_id: str) -> RedirectResponse:
+    """302 redirect to B2 authorized download URL for traffic visibility."""
+    state_file = settings.data_dir / "state.json"
+    state = load_state(state_file)
+
+    es = state.get(episode_id)
+    if es is None or es.status != "uploaded":
+        return Response(status_code=404, content="Episode not found")
+
+    storage = B2Storage(
+        settings.b2_key_id,
+        settings.b2_application_key,
+        settings.b2_bucket_name,
+    )
+    if not es.b2_file_name:
+        safe = episode_id.replace("/", "_").replace(":", "_")
+        es.b2_file_name = f"episodes/{safe}.mp3"
+
+    url = storage.get_download_auth_url(es.b2_file_name)
+    logger.info("Audio redirect: %s -> %s", episode_id, url[:80])
+    return RedirectResponse(url=url, status_code=302)
+
+
+@app.get("/episodes/{episode_id:path}/chapters.json")
+async def episode_chapters(episode_id: str) -> Response:
+    """Serve JSON chapters for an episode, remapped to edited timeline."""
+    state_file = settings.data_dir / "state.json"
+    state = load_state(state_file)
+
+    es = state.get(episode_id)
+    if es is None or es.status != "uploaded":
+        return Response(status_code=404, content="Episode not found")
+
+    # Parse chapters from description
+    description = es.episode.content_encoded or es.episode.description
+    chapters = parse_chapters_from_description(description)
+    if not chapters:
+        return Response(
+            content='{"version":"1.2.0","chapters":[]}',
+            media_type="application/json",
+        )
+
+    # Remap through edit list if available
+    if es.edit_list_path and Path(es.edit_list_path).exists():
+        edit_list = EditList.model_validate_json(Path(es.edit_list_path).read_text())
+        chapters = remap_chapters(chapters, edit_list)
+
+    return Response(content=chapters_to_json(chapters), media_type="application/json")
 
 
 # --- Request/Response models ---

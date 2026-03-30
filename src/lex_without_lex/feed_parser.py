@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
@@ -46,14 +47,39 @@ def parse_feed(xml: str) -> list[Episode]:
         # Parse duration (itunes:duration can be seconds or HH:MM:SS)
         duration = _parse_duration(entry)
 
+        title = entry.get("title", "Untitled")
+
+        # Extract content:encoded (feedparser normalizes to entry.content)
+        content_encoded = ""
+        content_list = getattr(entry, "content", None)
+        if content_list and isinstance(content_list, list):
+            content_encoded = content_list[0].get("value", "")
+        if not content_encoded:
+            content_encoded = entry.get("summary", "")
+
+        # Extract itunes:image (feedparser normalizes to entry.image)
+        itunes_image_url = ""
+        image = getattr(entry, "image", None)
+        if image and isinstance(image, dict):
+            itunes_image_url = image.get("href", "")
+
+        # Parse episode number from title (e.g. "#494 – ...")
+        episode_number = _parse_episode_number(title)
+
         episodes.append(
             Episode(
                 guid=entry.get("id", entry.get("link", audio_url)),
-                title=entry.get("title", "Untitled"),
+                title=title,
                 published=published,
                 audio_url=audio_url,
                 duration_seconds=duration,
                 description=entry.get("summary", ""),
+                link=entry.get("link", ""),
+                itunes_author=entry.get("author", ""),
+                itunes_episode_type=entry.get("itunes_episodetype", "full"),
+                itunes_image_url=itunes_image_url,
+                content_encoded=content_encoded,
+                episode_number=episode_number,
             )
         )
 
@@ -91,6 +117,12 @@ def _parse_duration(entry) -> int | None:
     except ValueError:
         pass
     return None
+
+
+def _parse_episode_number(title: str) -> int | None:
+    """Extract episode number from title like '#494 – ...'."""
+    m = re.search(r"#(\d+)", title)
+    return int(m.group(1)) if m else None
 
 
 async def get_episodes(url: str, client: httpx.AsyncClient | None = None) -> list[Episode]:

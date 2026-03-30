@@ -15,7 +15,7 @@ from .models import EditList, Episode, EpisodeState, Transcript
 from .storage import B2Storage
 from .transcriber import transcribe_episode
 from .tts import generate_all_interjections
-from .audio import assemble_audio
+from .audio import assemble_audio, get_audio_duration_ms
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,10 @@ async def process_episode(
         output = Path(es.output_path)
         if output.exists():
             es.output_size_bytes = output.stat().st_size
+    if es.status == "uploaded" and not es.output_duration_seconds and es.output_path:
+        output = Path(es.output_path)
+        if output.exists():
+            es.output_duration_seconds = get_audio_duration_ms(output) // 1000
 
     # On error, resume from the last completed step by checking saved outputs
     if es.status == "error":
@@ -152,8 +156,9 @@ async def process_episode(
             Path(es.audio_path), edit_list, interjection_paths, output_path
         )
         es.output_path = str(output_path)
+        es.output_duration_seconds = get_audio_duration_ms(output_path) // 1000
         es.status = "assembled"
-        logger.info("Assembled: %s", episode.title)
+        logger.info("Assembled: %s (duration: %ds)", episode.title, es.output_duration_seconds)
 
     # Step 5: Upload to B2
     if es.status == "assembled":

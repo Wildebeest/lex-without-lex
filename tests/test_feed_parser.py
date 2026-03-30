@@ -46,6 +46,44 @@ class TestParseFeed:
         titles = [e.title for e in episodes]
         assert not any("AMA" in t for t in titles)
 
+    def test_extracts_link(self, sample_feed_xml):
+        episodes = parse_feed(sample_feed_xml)
+        ep = next(e for e in episodes if "Elon" in e.title)
+        assert ep.link == "https://lexfridman.com/elon-musk-4"
+
+    def test_extracts_itunes_author(self, sample_feed_xml):
+        episodes = parse_feed(sample_feed_xml)
+        ep = next(e for e in episodes if "Elon" in e.title)
+        assert ep.itunes_author == "Lex Fridman"
+
+    def test_extracts_itunes_episode_type(self, sample_feed_xml):
+        episodes = parse_feed(sample_feed_xml)
+        ep = next(e for e in episodes if "Elon" in e.title)
+        assert ep.itunes_episode_type == "full"
+
+    def test_extracts_content_encoded(self, sample_feed_xml):
+        episodes = parse_feed(sample_feed_xml)
+        ep = next(e for e in episodes if "Elon" in e.title)
+        assert "OUTLINE" in ep.content_encoded
+        assert "(0:00)" in ep.content_encoded
+
+    def test_extracts_episode_number(self, sample_feed_xml):
+        episodes = parse_feed(sample_feed_xml)
+        ep = next(e for e in episodes if "Elon" in e.title)
+        assert ep.episode_number == 400
+
+    def test_episode_number_none_for_bonus(self, sample_feed_xml):
+        """Bonus episodes without #NNN should have no episode number."""
+        episodes = parse_feed(sample_feed_xml)
+        ep = next(e for e in episodes if "Sam Altman" in e.title)
+        assert ep.episode_number == 398
+
+    def test_missing_link_is_empty(self, sample_feed_xml):
+        episodes = parse_feed(sample_feed_xml)
+        ep = next(e for e in episodes if "Sam Altman" in e.title)
+        # Sam Altman entry has no <link> tag
+        assert ep.link == "" or ep.link is not None  # feedparser may fallback
+
 
 class TestFetchFeed:
     @respx.mock

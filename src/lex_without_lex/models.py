@@ -10,6 +10,12 @@ class Episode(BaseModel):
     audio_url: str
     duration_seconds: int | None = None
     description: str = ""
+    link: str = ""
+    itunes_author: str = ""
+    itunes_episode_type: str = "full"
+    itunes_image_url: str = ""
+    content_encoded: str = ""
+    episode_number: int | None = None
 
 
 class EpisodeState(BaseModel):
@@ -23,6 +29,7 @@ class EpisodeState(BaseModel):
     b2_url: str | None = None
     b2_file_name: str | None = None
     output_size_bytes: int | None = None
+    output_duration_seconds: int | None = None
     status: str = "new"  # new | downloaded | transcribed | edited | assembled | uploaded
 
 
@@ -65,3 +72,10 @@ class EditList(BaseModel):
     interjections: list[Interjection]
     summary: str = ""
     raw_response: str = ""
+
+
+class Chapter(BaseModel):
+    """A chapter marker with a timestamp and title."""
+
+    start_seconds: float
+    title: str

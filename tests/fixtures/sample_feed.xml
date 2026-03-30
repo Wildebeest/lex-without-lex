@@ -1,27 +1,41 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"
      xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
-     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:podcast="https://podcastindex.org/namespace/1.0">
   <channel>
     <title>Lex Fridman Podcast</title>
     <link>https://lexfridman.com</link>
     <description>Conversations about AI, science, and the human condition.</description>
     <itunes:author>Lex Fridman</itunes:author>
+    <itunes:image href="https://lexfridman.com/artwork.png"/>
     <item>
       <title>#400 – Elon Musk: Neuralink and the Future of Humanity</title>
+      <link>https://lexfridman.com/elon-musk-4</link>
       <guid>https://lexfridman.com/elon-musk-4</guid>
       <pubDate>Mon, 10 Mar 2025 10:00:00 +0000</pubDate>
       <description>Elon Musk joins for a fourth conversation about Neuralink.</description>
+      <content:encoded><![CDATA[<p>Elon Musk joins for a fourth conversation about Neuralink.</p>
+<p>OUTLINE:</p>
+<p>(0:00) – Introduction<br/>
+(12:34) – Neuralink update<br/>
+(1:05:20) – Future of humanity<br/>
+(2:30:00) – Closing thoughts</p>]]></content:encoded>
       <enclosure url="https://media.lexfridman.com/audio/lex_ai_elon_musk_4.mp3" type="audio/mpeg" length="150000000"/>
       <itunes:duration>3600</itunes:duration>
+      <itunes:author>Lex Fridman</itunes:author>
+      <itunes:episodeType>full</itunes:episodeType>
     </item>
     <item>
       <title>#399 – Andrej Karpathy: LLMs and the Future of AI</title>
+      <link>https://lexfridman.com/andrej-karpathy-2</link>
       <guid>https://lexfridman.com/andrej-karpathy-2</guid>
       <pubDate>Wed, 05 Mar 2025 10:00:00 +0000</pubDate>
       <description>Andrej Karpathy discusses large language models and AI research.</description>
       <enclosure url="https://media.lexfridman.com/audio/lex_ai_andrej_karpathy_2.mp3" type="audio/mpeg" length="120000000"/>
       <itunes:duration>7200</itunes:duration>
+      <itunes:author>Lex Fridman</itunes:author>
+      <itunes:episodeType>full</itunes:episodeType>
     </item>
     <item>
       <title>#398 – Sam Altman: OpenAI and AGI</title>
