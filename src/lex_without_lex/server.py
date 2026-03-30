@@ -18,6 +18,7 @@ from .feed_parser import get_episodes
 from .models import EpisodeState
 from .pipeline import load_state, process_episode, process_new_episodes, save_state
 
+logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 settings = Settings()
