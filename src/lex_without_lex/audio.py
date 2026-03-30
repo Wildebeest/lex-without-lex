@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
 
 from .models import EditList
 
+logger = logging.getLogger(__name__)
 
-def assemble_audio(
+
+async def assemble_audio(
     source_path: Path,
     edit_list: EditList,
     interjection_paths: dict[int, Path],
@@ -18,6 +22,8 @@ def assemble_audio(
     1. Extract each "keep" segment from source
     2. Interleave interjection audio at the right points
     3. Concatenate all pieces
+
+    Runs ffmpeg in a thread pool to avoid blocking the async event loop.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -29,6 +35,9 @@ def assemble_audio(
     if not keep_segments:
         raise ValueError("No segments to keep in edit list")
 
+    logger.info("Assembling %d keep segments with %d interjections",
+                len(keep_segments), len(interjection_paths))
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         pieces: list[Path] = []
@@ -37,19 +46,23 @@ def assemble_audio(
             # Check if an interjection should be inserted before this segment
             if seg.start_ms in interjection_paths:
                 inj_path = interjection_paths[seg.start_ms]
-                # Re-encode interjection to match source format
                 normalized = tmp / f"interjection_{i}.mp3"
-                _normalize_audio(inj_path, normalized)
+                await asyncio.to_thread(_normalize_audio, inj_path, normalized)
                 pieces.append(normalized)
 
-            # Extract this segment
             seg_path = tmp / f"segment_{i}.mp3"
-            _extract_segment(source_path, seg.start_ms, seg.end_ms, seg_path)
+            await asyncio.to_thread(
+                _extract_segment, source_path, seg.start_ms, seg.end_ms, seg_path
+            )
             pieces.append(seg_path)
 
-        # Concatenate all pieces
-        _concat_files(pieces, output_path)
+            if (i + 1) % 50 == 0:
+                logger.info("Extracted %d/%d segments", i + 1, len(keep_segments))
 
+        logger.info("Extracted all %d segments, concatenating...", len(pieces))
+        await asyncio.to_thread(_concat_files, pieces, output_path)
+
+    logger.info("Assembly complete: %s", output_path.name)
     return output_path
 
 

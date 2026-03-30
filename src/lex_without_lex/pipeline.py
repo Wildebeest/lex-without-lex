@@ -140,7 +140,7 @@ async def process_episode(
         )
 
         output_path = data_dir / "output" / f"{safe_name}.mp3"
-        assemble_audio(
+        await assemble_audio(
             Path(es.audio_path), edit_list, interjection_paths, output_path
         )
         es.output_path = str(output_path)

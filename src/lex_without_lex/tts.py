@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 
 import httpx
 
 from .models import Interjection
+
+logger = logging.getLogger(__name__)
 
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
@@ -74,10 +77,14 @@ async def generate_all_interjections(
     client: httpx.AsyncClient | None = None,
 ) -> dict[int, Path]:
     """Generate all interjections, return mapping of insert_after_ms -> audio_path."""
+    logger.info("Generating %d interjections", len(interjections))
     result: dict[int, Path] = {}
-    for inj in interjections:
+    for i, inj in enumerate(interjections):
         path = await generate_interjection(
             inj.text, voice_id, api_key, cache_dir, client
         )
         result[inj.insert_after_ms] = path
+        if (i + 1) % 10 == 0:
+            logger.info("Generated %d/%d interjections", i + 1, len(interjections))
+    logger.info("All %d interjections ready", len(interjections))
     return result
