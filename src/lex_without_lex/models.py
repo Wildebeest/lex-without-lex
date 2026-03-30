@@ -21,6 +21,8 @@ class EpisodeState(BaseModel):
     edit_list_path: str | None = None
     output_path: str | None = None
     b2_url: str | None = None
+    b2_file_name: str | None = None
+    output_size_bytes: int | None = None
     status: str = "new"  # new | downloaded | transcribed | edited | assembled | uploaded
 
 

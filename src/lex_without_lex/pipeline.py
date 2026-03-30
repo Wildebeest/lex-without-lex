@@ -77,6 +77,14 @@ async def process_episode(
     data_dir = settings.data_dir
     safe_name = episode.guid.replace("/", "_").replace(":", "_")
 
+    # Backfill b2_file_name for episodes uploaded before this field existed
+    if es.status == "uploaded" and not es.b2_file_name:
+        es.b2_file_name = f"episodes/{safe_name}.mp3"
+    if es.status == "uploaded" and not es.output_size_bytes and es.output_path:
+        output = Path(es.output_path)
+        if output.exists():
+            es.output_size_bytes = output.stat().st_size
+
     # On error, resume from the last completed step by checking saved outputs
     if es.status == "error":
         if es.edit_list_path and Path(es.edit_list_path).exists():
@@ -154,8 +162,10 @@ async def process_episode(
             settings.b2_application_key,
             settings.b2_bucket_name,
         )
-        b2_url = storage.upload_episode(Path(es.output_path), episode.guid)
+        b2_url, b2_file_name = storage.upload_episode(Path(es.output_path), episode.guid)
         es.b2_url = b2_url
+        es.b2_file_name = b2_file_name
+        es.output_size_bytes = Path(es.output_path).stat().st_size
         es.status = "uploaded"
         logger.info("Uploaded: %s -> %s", episode.title, b2_url)
 

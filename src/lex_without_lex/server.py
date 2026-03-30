@@ -72,15 +72,38 @@ async def podcast_feed() -> Response:
         reverse=True,
     )
 
-    xml = render_feed_xml(episodes, settings)
+    # Generate authorized download URLs for private B2 bucket
+    from .storage import B2Storage
+    storage = B2Storage(
+        settings.b2_key_id,
+        settings.b2_application_key,
+        settings.b2_bucket_name,
+    )
+    download_urls = {}
+    for ep in episodes:
+        # Backfill b2_file_name for episodes uploaded before this field existed
+        if not ep.b2_file_name:
+            safe = ep.episode.guid.replace("/", "_").replace(":", "_")
+            ep.b2_file_name = f"episodes/{safe}.mp3"
+        download_urls[ep.episode.guid] = storage.get_download_auth_url(ep.b2_file_name)
+
+    xml = render_feed_xml(episodes, settings, download_urls)
     return Response(content=xml, media_type="application/xml")
 
 
-def render_feed_xml(episodes: list[EpisodeState], settings: Settings) -> str:
+def render_feed_xml(
+    episodes: list[EpisodeState],
+    settings: Settings,
+    download_urls: dict[str, str] | None = None,
+) -> str:
     """Render RSS XML using Jinja2 template."""
     env = _get_jinja_env()
     template = env.get_template("feed.xml.j2")
-    return template.render(episodes=episodes, base_url=settings.base_url)
+    return template.render(
+        episodes=episodes,
+        base_url=settings.base_url,
+        download_urls=download_urls or {},
+    )
 
 
 # --- Request/Response models ---
