@@ -87,6 +87,14 @@ class TestTranscriptionPrompt:
 
 
 class TestTranscribeEpisode:
+    @pytest.fixture(autouse=True)
+    def _mock_ffprobe(self, monkeypatch):
+        """Mock get_audio_duration_ms so tests don't need ffprobe installed."""
+        import lex_without_lex.transcriber as mod
+        monkeypatch.setattr(
+            "lex_without_lex.audio.get_audio_duration_ms", lambda _: 60_000
+        )
+
     @respx.mock
     @pytest.mark.asyncio
     async def test_calls_gemini_api(self, tmp_path, sample_gemini_response):

@@ -75,10 +75,22 @@ async def process_episode(
     """Process a single episode through the full pipeline."""
     es = existing_state or EpisodeState(episode=episode)
     data_dir = settings.data_dir
+    safe_name = episode.guid.replace("/", "_").replace(":", "_")
+
+    # On error, resume from the last completed step by checking saved outputs
+    if es.status == "error":
+        if es.edit_list_path and Path(es.edit_list_path).exists():
+            es.status = "edited"
+            logger.info("Resuming from edited: %s", episode.title)
+        elif es.transcript_path and Path(es.transcript_path).exists():
+            es.status = "transcribed"
+            logger.info("Resuming from transcribed: %s", episode.title)
+        elif es.audio_path and Path(es.audio_path).exists():
+            es.status = "downloaded"
+            logger.info("Resuming from downloaded: %s", episode.title)
 
     # Step 1: Download
     if es.status in ("new", "error"):
-        safe_name = episode.guid.replace("/", "_").replace(":", "_")
         audio_path = data_dir / "episodes" / f"{safe_name}.mp3"
         await download_episode(episode.audio_url, audio_path)
         es.audio_path = str(audio_path)

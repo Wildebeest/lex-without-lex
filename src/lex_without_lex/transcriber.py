@@ -71,17 +71,20 @@ async def _transcribe_with_chunking(
     api_key: str,
     episode_guid: str,
 ) -> Transcript:
-    """Try single transcription, fall back to chunked on MAX_TOKENS."""
-    try:
+    """Transcribe audio, splitting into chunks if longer than TRANSCRIPTION_CHUNK_MS."""
+    from .audio import get_audio_duration_ms, split_audio
+
+    duration_ms = get_audio_duration_ms(audio_path)
+    if duration_ms <= TRANSCRIPTION_CHUNK_MS:
+        logger.info("Audio is %d min, transcribing in one request", duration_ms // 60000)
         return await _do_transcribe(client, audio_path, api_key, episode_guid)
-    except ValueError as e:
-        if "MAX_TOKENS" not in str(e):
-            raise
 
     # Episode too long — split into chunks and transcribe each
-    from .audio import split_audio
-
-    logger.info("Transcription truncated, splitting audio into chunks")
+    logger.info(
+        "Audio is %d min, splitting into %d-min chunks",
+        duration_ms // 60000,
+        TRANSCRIPTION_CHUNK_MS // 60000,
+    )
     with tempfile.TemporaryDirectory() as tmpdir:
         chunks = split_audio(audio_path, TRANSCRIPTION_CHUNK_MS, Path(tmpdir))
         logger.info("Split into %d chunks", len(chunks))
