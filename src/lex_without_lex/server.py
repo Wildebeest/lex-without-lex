@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 settings = Settings()
 
+KEEPALIVE_INTERVAL: float = 30
+
 
 def _get_jinja_env() -> Environment:
     template_dir = Path(__file__).parent / "templates"
@@ -180,7 +182,7 @@ async def trigger_processing():
         yield json.dumps({"status": "processing"}) + "\n"
         task = asyncio.create_task(process_new_episodes(settings))
         while not task.done():
-            await asyncio.sleep(30)
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
             yield "\n"  # keepalive
         exc = task.exception() if not task.cancelled() else None
         if exc:
@@ -267,7 +269,7 @@ async def process_specific_episodes(request: ProcessEpisodesRequest):
             _process_selected_episodes(guids, settings)
         )
         while not task.done():
-            await asyncio.sleep(30)
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
             yield "\n"  # keepalive
         exc = task.exception() if not task.cancelled() else None
         if exc:
