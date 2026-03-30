@@ -13,7 +13,7 @@ from .editor import generate_edit_list, validate_edit_list
 from .feed_parser import get_episodes
 from .models import EditList, Episode, EpisodeState, Transcript
 from .storage import B2Storage
-from .transcriber import transcribe_episode
+from .transcriber import fetch_published_transcript, transcribe_episode
 from .tts import generate_all_interjections
 from .audio import assemble_audio, get_audio_duration_ms
 
@@ -126,8 +126,15 @@ async def process_episode(
     # Step 3: Edit
     if es.status == "transcribed":
         transcript = Transcript.model_validate_json(Path(es.transcript_path).read_text())
+        description = episode.content_encoded or episode.description
+        published = await fetch_published_transcript(
+            description, episode.guid
+        )
         edit_list = await generate_edit_list(
-            transcript, settings.anthropic_api_key
+            transcript,
+            settings.anthropic_api_key,
+            episode_description=description,
+            published_transcript=published,
         )
         warnings = validate_edit_list(edit_list, transcript)
         if warnings:

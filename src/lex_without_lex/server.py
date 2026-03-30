@@ -119,6 +119,40 @@ async def episode_audio(episode_id: str) -> RedirectResponse:
     return RedirectResponse(url=url, status_code=302)
 
 
+@app.get("/episodes/{episode_id:path}/transcript")
+async def episode_transcript(episode_id: str) -> Response:
+    """Serve the saved transcript JSON for debugging."""
+    state_file = settings.data_dir / "state.json"
+    state = load_state(state_file)
+
+    es = state.get(episode_id)
+    if es is None or not es.transcript_path:
+        return Response(status_code=404, content="Transcript not found")
+
+    path = Path(es.transcript_path)
+    if not path.exists():
+        return Response(status_code=404, content="Transcript file missing")
+
+    return Response(content=path.read_text(), media_type="application/json")
+
+
+@app.get("/episodes/{episode_id:path}/edit-list")
+async def episode_edit_list(episode_id: str) -> Response:
+    """Serve the saved edit list JSON for debugging."""
+    state_file = settings.data_dir / "state.json"
+    state = load_state(state_file)
+
+    es = state.get(episode_id)
+    if es is None or not es.edit_list_path:
+        return Response(status_code=404, content="Edit list not found")
+
+    path = Path(es.edit_list_path)
+    if not path.exists():
+        return Response(status_code=404, content="Edit list file missing")
+
+    return Response(content=path.read_text(), media_type="application/json")
+
+
 @app.get("/episodes/{episode_id:path}/chapters.json")
 async def episode_chapters(episode_id: str) -> Response:
     """Serve JSON chapters for an episode, remapped to edited timeline."""

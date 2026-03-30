@@ -1,0 +1,89 @@
+{
+  "episode_guid": "test-jensen-intro",
+  "segments": [
+    {
+      "speaker": "lex",
+      "text": "The following is a conversation with Jensen Huang, CEO of NVIDIA, one of the most important and influential companies in the history of human civilization. This is the Lex Fridman Podcast. And now, dear friends, here's Jensen Huang.",
+      "start_ms": 0,
+      "end_ms": 26000
+    },
+    {
+      "speaker": "lex",
+      "text": "This episode is brought to you by LMNT, the zero-sugar electrolyte drink mix. My favorite flavor is watermelon salt. If you haven't tried it, I highly recommend it. Go to drinkLMNT.com/lex to get a free sample pack.",
+      "start_ms": 26000,
+      "end_ms": 60000
+    },
+    {
+      "speaker": "lex",
+      "text": "This episode is also brought to you by Shopify and Perplexity. Check out the links in the description.",
+      "start_ms": 60000,
+      "end_ms": 90000
+    },
+    {
+      "speaker": "lex",
+      "text": "I've been thinking a lot about the nature of leadership lately. What makes a great leader? Is it vision? Is it the ability to inspire others? I think Jensen embodies both of these qualities in a remarkable way.",
+      "start_ms": 90000,
+      "end_ms": 150000
+    },
+    {
+      "speaker": "lex",
+      "text": "Some housekeeping: please subscribe to this podcast on YouTube, Spotify, or Apple Podcasts. Leave a review if you enjoy it. And follow me on Twitter and Instagram.",
+      "start_ms": 150000,
+      "end_ms": 200000
+    },
+    {
+      "speaker": "lex",
+      "text": "Now, let's talk to Jensen. You've propelled NVIDIA into a new era in AI, moving beyond chip-scale design to rack-scale design. What is the hardest part of co-designing a system with that many complex components?",
+      "start_ms": 200000,
+      "end_ms": 394000
+    },
+    {
+      "speaker": "guest",
+      "text": "Yeah, thanks for that question. So first of all, the reason why extreme co-design is necessary is because the problem no longer fits inside one computer. You want to go faster than the number of computers that you add. Then everything gets in the way.",
+      "start_ms": 394000,
+      "end_ms": 440000
+    },
+    {
+      "speaker": "guest",
+      "text": "This is the Amdahl's law problem where the amount of speedup you have depends on how much of the total workload it is. So if computation is 50% of the problem and I sped it up a million times, I only sped up the total workload by a factor of two.",
+      "start_ms": 440000,
+      "end_ms": 490000
+    },
+    {
+      "speaker": "lex",
+      "text": "I'm sure there's trade-offs there. Plus you have completely disparate disciplines here. How do you get them in a room together?",
+      "start_ms": 490000,
+      "end_ms": 510000
+    },
+    {
+      "speaker": "guest",
+      "text": "That's why my staff is so large. Yeah. There's experts in memory, CPUs, optical, GPUs, architecture, algorithms. And no conversation is ever one person. We present a problem and all of us attack it.",
+      "start_ms": 510000,
+      "end_ms": 570000
+    },
+    {
+      "speaker": "lex",
+      "text": "So even if you're talking about a particular component, everybody's listening in?",
+      "start_ms": 570000,
+      "end_ms": 585000
+    },
+    {
+      "speaker": "guest",
+      "text": "Yeah, exactly. And whoever wants to tune out, tune out. The people who are on the staff know when to pay attention. If there's something they could have contributed to and didn't, I'm going to call them out.",
+      "start_ms": 585000,
+      "end_ms": 630000
+    },
+    {
+      "speaker": "lex",
+      "text": "Can you take me through the decision to put CUDA on GeForce?",
+      "start_ms": 630000,
+      "end_ms": 645000
+    },
+    {
+      "speaker": "guest",
+      "text": "That was the first strategic decision that is as close to an existential threat. CUDA increased the cost of GeForce so tremendously it consumed all of the company's gross profit. Our market cap went from eight billion to one and a half billion. But we carried CUDA on GeForce because install base defines an architecture.",
+      "start_ms": 645000,
+      "end_ms": 750000
+    }
+  ]
+}
