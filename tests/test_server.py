@@ -260,7 +260,8 @@ def _make_episodes():
 
 class TestTriggerProcessing:
     def test_returns_streaming_response(self, client):
-        with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock):
+        with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock), \
+             patch("lex_without_lex.server.KEEPALIVE_INTERVAL", 0.01):
             resp = client.post("/process")
         assert resp.status_code == 200
         lines = _parse_ndjson_lines(resp.text)
@@ -268,7 +269,8 @@ class TestTriggerProcessing:
         assert lines[-1] == {"status": "complete"}
 
     def test_calls_process_new_episodes(self, client):
-        with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock) as mock_proc:
+        with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock) as mock_proc, \
+             patch("lex_without_lex.server.KEEPALIVE_INTERVAL", 0.01):
             client.post("/process")
         mock_proc.assert_called_once()
 
@@ -342,7 +344,7 @@ class TestProcessSpecificEpisodes:
     def test_returns_streaming_with_guids(self, client):
         with patch(
             "lex_without_lex.server._process_selected_episodes", new_callable=AsyncMock
-        ):
+        ), patch("lex_without_lex.server.KEEPALIVE_INTERVAL", 0.01):
             resp = client.post("/episodes/process", json={"guids": ["ep-old-1", "ep-old-2"]})
 
         assert resp.status_code == 200
@@ -354,7 +356,7 @@ class TestProcessSpecificEpisodes:
     def test_calls_helper_with_guids(self, client):
         with patch(
             "lex_without_lex.server._process_selected_episodes", new_callable=AsyncMock
-        ) as mock_proc:
+        ) as mock_proc, patch("lex_without_lex.server.KEEPALIVE_INTERVAL", 0.01):
             client.post("/episodes/process", json={"guids": ["ep-old-1"]})
 
         mock_proc.assert_called_once()
@@ -364,7 +366,7 @@ class TestProcessSpecificEpisodes:
     def test_empty_guids(self, client):
         with patch(
             "lex_without_lex.server._process_selected_episodes", new_callable=AsyncMock
-        ):
+        ), patch("lex_without_lex.server.KEEPALIVE_INTERVAL", 0.01):
             resp = client.post("/episodes/process", json={"guids": []})
 
         assert resp.status_code == 200
