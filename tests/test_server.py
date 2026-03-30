@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from xml.etree import ElementTree
@@ -8,6 +9,11 @@ from fastapi.testclient import TestClient
 from lex_without_lex.models import Episode, EpisodeState
 from lex_without_lex.server import app, render_feed_xml
 from lex_without_lex.config import Settings
+
+
+def _parse_ndjson_lines(text: str) -> list[dict]:
+    """Parse non-empty lines from an ndjson streaming response."""
+    return [json.loads(line) for line in text.strip().splitlines() if line.strip()]
 
 
 @pytest.fixture
@@ -146,11 +152,13 @@ def _make_episodes():
 
 
 class TestTriggerProcessing:
-    def test_returns_202(self, client):
+    def test_returns_streaming_response(self, client):
         with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock):
             resp = client.post("/process")
-        assert resp.status_code == 202
-        assert resp.json() == {"status": "processing"}
+        assert resp.status_code == 200
+        lines = _parse_ndjson_lines(resp.text)
+        assert lines[0] == {"status": "processing"}
+        assert lines[-1] == {"status": "complete"}
 
     def test_calls_process_new_episodes(self, client):
         with patch("lex_without_lex.server.process_new_episodes", new_callable=AsyncMock) as mock_proc:
@@ -224,16 +232,17 @@ class TestListEpisodes:
 
 
 class TestProcessSpecificEpisodes:
-    def test_returns_202_with_guids(self, client):
+    def test_returns_streaming_with_guids(self, client):
         with patch(
             "lex_without_lex.server._process_selected_episodes", new_callable=AsyncMock
         ):
             resp = client.post("/episodes/process", json={"guids": ["ep-old-1", "ep-old-2"]})
 
-        assert resp.status_code == 202
-        data = resp.json()
-        assert data["status"] == "processing"
-        assert data["guids"] == ["ep-old-1", "ep-old-2"]
+        assert resp.status_code == 200
+        lines = _parse_ndjson_lines(resp.text)
+        assert lines[0]["status"] == "processing"
+        assert lines[0]["guids"] == ["ep-old-1", "ep-old-2"]
+        assert lines[-1] == {"status": "complete"}
 
     def test_calls_helper_with_guids(self, client):
         with patch(
@@ -251,5 +260,6 @@ class TestProcessSpecificEpisodes:
         ):
             resp = client.post("/episodes/process", json={"guids": []})
 
-        assert resp.status_code == 202
-        assert resp.json()["guids"] == []
+        assert resp.status_code == 200
+        lines = _parse_ndjson_lines(resp.text)
+        assert lines[0]["guids"] == []

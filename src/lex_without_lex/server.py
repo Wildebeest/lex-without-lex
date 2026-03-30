@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, Response
+from fastapi import FastAPI, Response
+from fastapi.responses import StreamingResponse
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 
@@ -104,11 +107,26 @@ class ProcessEpisodesRequest(BaseModel):
 # --- Endpoints ---
 
 
-@app.post("/process", status_code=202)
-async def trigger_processing(background_tasks: BackgroundTasks):
-    """Manually trigger the processing pipeline."""
-    background_tasks.add_task(process_new_episodes, settings)
-    return {"status": "processing"}
+@app.post("/process")
+async def trigger_processing():
+    """Manually trigger the processing pipeline.
+
+    Returns a streaming response that stays open during processing,
+    preventing Fly.io from auto-stopping the machine.
+    """
+    async def stream() -> AsyncGenerator[str, None]:
+        yield json.dumps({"status": "processing"}) + "\n"
+        task = asyncio.create_task(process_new_episodes(settings))
+        while not task.done():
+            await asyncio.sleep(30)
+            yield "\n"  # keepalive
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            yield json.dumps({"status": "error", "error": str(exc)}) + "\n"
+        else:
+            yield json.dumps({"status": "complete"}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
 @app.get("/episodes", response_model=EpisodeListResponse)
@@ -172,11 +190,27 @@ async def _process_selected_episodes(guids: list[str], settings: Settings) -> No
             save_state(state, state_file)
 
 
-@app.post("/episodes/process", status_code=202)
-async def process_specific_episodes(
-    request: ProcessEpisodesRequest,
-    background_tasks: BackgroundTasks,
-):
-    """Process specific episodes by guid, bypassing the date cutoff."""
-    background_tasks.add_task(_process_selected_episodes, request.guids, settings)
-    return {"status": "processing", "guids": request.guids}
+@app.post("/episodes/process")
+async def process_specific_episodes(request: ProcessEpisodesRequest):
+    """Process specific episodes by guid, bypassing the date cutoff.
+
+    Returns a streaming response that stays open during processing,
+    preventing Fly.io from auto-stopping the machine.
+    """
+    guids = request.guids
+
+    async def stream() -> AsyncGenerator[str, None]:
+        yield json.dumps({"status": "processing", "guids": guids}) + "\n"
+        task = asyncio.create_task(
+            _process_selected_episodes(guids, settings)
+        )
+        while not task.done():
+            await asyncio.sleep(30)
+            yield "\n"  # keepalive
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            yield json.dumps({"status": "error", "error": str(exc)}) + "\n"
+        else:
+            yield json.dumps({"status": "complete"}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
