@@ -9,6 +9,7 @@ from lex_without_lex.audio import (
     _build_filter_graph,
     _concat_files,
     _extract_segment,
+    _sanitize_segments,
     assemble_audio,
     build_concat_list,
 )
@@ -49,6 +50,76 @@ def _get_duration(path: Path) -> float:
         check=True,
     )
     return float(result.stdout.strip())
+
+
+class TestSanitizeSegments:
+    def test_drops_zero_duration(self):
+        segments = [
+            SegmentAction(action="keep", start_ms=0, end_ms=5000, speaker="guest"),
+            SegmentAction(action="keep", start_ms=5000, end_ms=5000, speaker="guest"),  # zero
+            SegmentAction(action="keep", start_ms=8000, end_ms=10000, speaker="guest"),
+        ]
+        result = _sanitize_segments(segments)
+        assert len(result) == 2
+        assert result[0].start_ms == 0
+        assert result[1].start_ms == 8000
+
+    def test_drops_negative_duration(self):
+        segments = [
+            SegmentAction(action="keep", start_ms=0, end_ms=5000, speaker="guest"),
+            SegmentAction(action="keep", start_ms=4943500, end_ms=1460000, speaker="guest"),  # negative
+        ]
+        result = _sanitize_segments(segments)
+        assert len(result) == 1
+        assert result[0].start_ms == 0
+
+    def test_resolves_overlaps(self):
+        segments = [
+            SegmentAction(action="keep", start_ms=0, end_ms=10000, speaker="guest"),
+            SegmentAction(action="keep", start_ms=8000, end_ms=15000, speaker="guest"),
+        ]
+        result = _sanitize_segments(segments)
+        assert len(result) == 2
+        assert result[0].end_ms == 8000  # trimmed
+        assert result[1].start_ms == 8000
+
+    def test_fully_overlapped_segment_dropped(self):
+        segments = [
+            SegmentAction(action="keep", start_ms=0, end_ms=20000, speaker="guest"),
+            SegmentAction(action="keep", start_ms=5000, end_ms=10000, speaker="guest"),
+        ]
+        result = _sanitize_segments(segments)
+        # First segment trimmed to [0-5000], second is [5000-10000]
+        assert len(result) == 2
+        assert result[0].end_ms == 5000
+        assert result[1].start_ms == 5000
+
+    def test_clean_segments_unchanged(self):
+        segments = [
+            SegmentAction(action="keep", start_ms=0, end_ms=5000, speaker="guest"),
+            SegmentAction(action="keep", start_ms=5000, end_ms=10000, speaker="guest"),
+        ]
+        result = _sanitize_segments(segments)
+        assert len(result) == 2
+        assert result[0].end_ms == 5000
+        assert result[1].start_ms == 5000
+
+    def test_empty_input(self):
+        assert _sanitize_segments([]) == []
+
+    def test_real_world_bad_segments(self):
+        """Reproduce the exact bad segments from the Jensen episode."""
+        segments = [
+            SegmentAction(action="keep", start_ms=828500, end_ms=938500, speaker="guest"),
+            SegmentAction(action="keep", start_ms=937200, end_ms=938500, speaker="guest"),  # overlap
+            SegmentAction(action="keep", start_ms=2401600, end_ms=2401600, speaker="guest"),  # zero
+            SegmentAction(action="keep", start_ms=4943500, end_ms=1460000, speaker="guest"),  # negative
+        ]
+        result = _sanitize_segments(segments)
+        # Zero and negative dropped, overlap resolved
+        assert all(s.end_ms > s.start_ms for s in result)
+        for i in range(1, len(result)):
+            assert result[i].start_ms >= result[i-1].end_ms
 
 
 class TestBuildConcatList:

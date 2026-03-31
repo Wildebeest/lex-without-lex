@@ -11,6 +11,55 @@ from .models import EditList, SegmentAction
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_segments(segments: list[SegmentAction]) -> list[SegmentAction]:
+    """Filter out invalid segments and resolve overlaps.
+
+    Removes zero/negative-duration segments, then trims earlier segments
+    that overlap with later ones.
+    """
+    # Remove zero/negative duration segments
+    valid = []
+    for s in segments:
+        if s.end_ms <= s.start_ms:
+            logger.warning(
+                "Dropping invalid segment [%d-%d] (%s): zero or negative duration",
+                s.start_ms, s.end_ms, s.reason,
+            )
+            continue
+        valid.append(s)
+
+    if not valid:
+        return valid
+
+    # Sort by start time
+    valid.sort(key=lambda s: s.start_ms)
+
+    # Resolve overlaps: trim the earlier segment's end to the later segment's start
+    sanitized = [valid[0]]
+    for s in valid[1:]:
+        prev = sanitized[-1]
+        if s.start_ms < prev.end_ms:
+            # Overlap: trim previous segment
+            logger.warning(
+                "Trimming overlap: [%d-%d] trimmed to [%d-%d] (next starts at %d)",
+                prev.start_ms, prev.end_ms, prev.start_ms, s.start_ms, s.start_ms,
+            )
+            trimmed = SegmentAction(
+                action=prev.action,
+                start_ms=prev.start_ms,
+                end_ms=s.start_ms,
+                speaker=prev.speaker,
+                reason=prev.reason,
+            )
+            if trimmed.end_ms > trimmed.start_ms:
+                sanitized[-1] = trimmed
+            else:
+                sanitized.pop()
+        sanitized.append(s)
+
+    return sanitized
+
+
 def _build_filter_graph(
     keep_segments: list[SegmentAction],
     interjection_paths: dict[int, Path],
@@ -102,9 +151,8 @@ async def assemble_audio(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    keep_segments = sorted(
-        [s for s in edit_list.segments if s.action == "keep"],
-        key=lambda s: s.start_ms,
+    keep_segments = _sanitize_segments(
+        [s for s in edit_list.segments if s.action == "keep"]
     )
 
     if not keep_segments:
