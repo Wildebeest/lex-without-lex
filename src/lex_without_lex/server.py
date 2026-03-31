@@ -202,6 +202,11 @@ class ProcessEpisodesRequest(BaseModel):
     guids: list[str]
 
 
+class ReprocessRequest(BaseModel):
+    guids: list[str]
+    from_step: str = "transcribed"  # reset to this status before reprocessing
+
+
 # --- Endpoints ---
 
 
@@ -301,6 +306,78 @@ async def process_specific_episodes(request: ProcessEpisodesRequest):
         yield json.dumps({"status": "processing", "guids": guids}) + "\n"
         task = asyncio.create_task(
             _process_selected_episodes(guids, settings)
+        )
+        while not task.done():
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
+            yield "\n"  # keepalive
+        exc = task.exception() if not task.cancelled() else None
+        if exc:
+            yield json.dumps({"status": "error", "error": str(exc)}) + "\n"
+        else:
+            yield json.dumps({"status": "complete"}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+VALID_RESET_STATUSES = {"new", "downloaded", "transcribed", "edited", "assembled"}
+
+
+async def _reprocess_episodes(guids: list[str], from_step: str, settings: Settings) -> None:
+    """Reset episodes to a given step and reprocess them."""
+    state_file = settings.data_dir / "state.json"
+    state = load_state(state_file)
+
+    episodes = await get_episodes(settings.feed_url)
+    episodes_by_guid = {e.guid: e for e in episodes}
+
+    for guid in guids:
+        episode = episodes_by_guid.get(guid)
+        if episode is None:
+            logger.warning("Guid not found in feed: %s", guid)
+            continue
+        if guid in state:
+            logger.info(
+                "Resetting %s from '%s' to '%s'",
+                episode.title, state[guid].status, from_step,
+            )
+            state[guid].status = from_step
+            save_state(state, state_file)
+        try:
+            episode_state = await process_episode(episode, settings, state.get(guid))
+            state[guid] = episode_state
+            save_state(state, state_file)
+        except Exception:
+            logger.exception("Failed to reprocess episode: %s", episode.title)
+            if guid in state:
+                state[guid].status = "error"
+            save_state(state, state_file)
+
+
+@app.post("/episodes/reprocess")
+async def reprocess_episodes(request: ReprocessRequest):
+    """Reset episodes to a prior pipeline step and reprocess them.
+
+    Use from_step to control what gets re-run:
+    - "transcribed" (default): re-run editing, assembly, and upload
+    - "downloaded": re-transcribe, re-edit, reassemble, re-upload
+    - "edited": re-assemble and re-upload only
+    """
+    if request.from_step not in VALID_RESET_STATUSES:
+        return Response(
+            status_code=400,
+            content=f"Invalid from_step: {request.from_step}. "
+            f"Must be one of: {', '.join(sorted(VALID_RESET_STATUSES))}",
+        )
+
+    guids = request.guids
+    from_step = request.from_step
+
+    async def stream() -> AsyncGenerator[str, None]:
+        yield json.dumps({
+            "status": "reprocessing", "guids": guids, "from_step": from_step,
+        }) + "\n"
+        task = asyncio.create_task(
+            _reprocess_episodes(guids, from_step, settings)
         )
         while not task.done():
             await asyncio.sleep(KEEPALIVE_INTERVAL)
