@@ -1,4 +1,9 @@
-"""LLM-based judge for evaluating podcast edit quality using Gemini."""
+"""LLM-based judge for evaluating podcast edit quality.
+
+Supports two backends:
+- OpenRouter (OpenAI-compatible API) via LWL_OPENROUTER_API_KEY
+- Direct Gemini API via LWL_GEMINI_API_KEY
+"""
 
 from __future__ import annotations
 
@@ -16,6 +21,9 @@ GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "gemini-2.5-flash:generateContent"
 )
+
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = "google/gemini-2.5-flash"
 
 JUDGE_SYSTEM_PROMPT = """\
 You are an expert podcast editor evaluating the quality of an automated edit.
@@ -92,7 +100,7 @@ def _build_judge_prompt(transcript: Transcript, edit_list: EditList) -> str:
 
 
 def _parse_judge_response(text: str) -> JudgeResult:
-    """Parse Gemini's judge response into a JudgeResult."""
+    """Parse the judge response into a JudgeResult."""
     # Strip markdown fences if present
     clean = text.strip()
     if clean.startswith("```"):
@@ -113,18 +121,43 @@ def _parse_judge_response(text: str) -> JudgeResult:
     )
 
 
-async def judge_edit_quality(
-    transcript: Transcript,
-    edit_list: EditList,
-    gemini_api_key: str,
-    client: httpx.AsyncClient | None = None,
+async def _call_openrouter(
+    client: httpx.AsyncClient,
+    api_key: str,
+    user_content: str,
 ) -> JudgeResult:
-    """Use Gemini Flash to evaluate an edit list against a transcript.
+    """Call OpenRouter's OpenAI-compatible API."""
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 2048,
+        "response_format": {"type": "json_object"},
+    }
+    resp = await client.post(
+        OPENROUTER_API_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=120.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    text = data["choices"][0]["message"]["content"]
+    return _parse_judge_response(text)
 
-    Returns a JudgeResult with scores, overall rating, issues, and pass/fail.
-    """
-    user_content = _build_judge_prompt(transcript, edit_list)
 
+async def _call_gemini_direct(
+    client: httpx.AsyncClient,
+    api_key: str,
+    user_content: str,
+) -> JudgeResult:
+    """Call the Gemini API directly."""
     payload = {
         "contents": [
             {
@@ -139,20 +172,36 @@ async def judge_edit_quality(
             "responseMimeType": "application/json",
         },
     }
+    resp = await client.post(
+        GEMINI_API_URL,
+        params={"key": api_key},
+        json=payload,
+        timeout=120.0,
+    )
+    resp.raise_for_status()
+    response_data = resp.json()
+    text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+    return _parse_judge_response(text)
+
+
+async def judge_edit_quality(
+    transcript: Transcript,
+    edit_list: EditList,
+    api_key: str,
+    client: httpx.AsyncClient | None = None,
+    backend: str = "openrouter",
+) -> JudgeResult:
+    """Evaluate an edit list against a transcript using an LLM judge.
+
+    Args:
+        backend: "openrouter" for OpenRouter API, "gemini" for direct Gemini API.
+    """
+    user_content = _build_judge_prompt(transcript, edit_list)
 
     async def _call(c: httpx.AsyncClient) -> JudgeResult:
-        resp = await c.post(
-            GEMINI_API_URL,
-            params={"key": gemini_api_key},
-            json=payload,
-            timeout=60.0,
-        )
-        resp.raise_for_status()
-        response_data = resp.json()
-        text = (
-            response_data["candidates"][0]["content"]["parts"][0]["text"]
-        )
-        return _parse_judge_response(text)
+        if backend == "openrouter":
+            return await _call_openrouter(c, api_key, user_content)
+        return await _call_gemini_direct(c, api_key, user_content)
 
     if client is None:
         async with httpx.AsyncClient() as c:

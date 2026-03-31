@@ -1,10 +1,11 @@
 """LLM-judge tests for edit quality evaluation.
 
-These tests use Gemini Flash to evaluate whether edit lists achieve the
-editing objective: maximum guest speech, minimum interjections, zero host audio.
+These tests use Gemini Flash (via OpenRouter or direct API) to evaluate
+whether edit lists achieve the editing objective: maximum guest speech,
+minimum interjections, zero host audio.
 
 Run with: pytest tests/test_edit_quality.py -m llm_judge
-Requires: LWL_GEMINI_API_KEY environment variable
+Requires: LWL_OPENROUTER_API_KEY or LWL_GEMINI_API_KEY environment variable
 """
 
 from __future__ import annotations
@@ -74,11 +75,13 @@ class TestIntroAndSponsorsCut:
         assert warnings == []
 
     @pytest.mark.asyncio
-    async def test_gemini_judge_approves(self, fixtures_dir, gemini_api_key):
+    async def test_gemini_judge_approves(self, fixtures_dir, gemini_api_key, judge_backend):
         transcript = _load_scenario(fixtures_dir, "jensen_intro")
         edit_list = _load_golden_edit(fixtures_dir, "jensen_intro")
 
-        result = await judge_edit_quality(transcript, edit_list, gemini_api_key)
+        result = await judge_edit_quality(
+            transcript, edit_list, gemini_api_key, backend=judge_backend
+        )
         assert result.scores.get("INTRO_HANDLING", 0) >= 4, (
             f"INTRO_HANDLING score too low: {result.scores}. Issues: {result.issues}"
         )
@@ -128,8 +131,10 @@ class TestHostFullyRemoved:
         assert warnings == []
 
     @pytest.mark.asyncio
-    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key):
-        result = await judge_edit_quality(scenario, golden_edit, gemini_api_key)
+    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key, judge_backend):
+        result = await judge_edit_quality(
+            scenario, golden_edit, gemini_api_key, backend=judge_backend
+        )
         assert result.scores.get("HOST_REMOVAL", 0) >= 5
         assert result.scores.get("GUEST_PRESERVATION", 0) >= 5
         assert result.passed, f"Issues: {result.issues}"
@@ -168,8 +173,10 @@ class TestGuestFullyPreserved:
         )
 
     @pytest.mark.asyncio
-    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key):
-        result = await judge_edit_quality(scenario, golden_edit, gemini_api_key)
+    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key, judge_backend):
+        result = await judge_edit_quality(
+            scenario, golden_edit, gemini_api_key, backend=judge_backend
+        )
         assert result.scores.get("GUEST_PRESERVATION", 0) >= 5
         assert result.passed, f"Issues: {result.issues}"
 
@@ -218,8 +225,10 @@ class TestInterjectionsMinimal:
         assert warnings == []
 
     @pytest.mark.asyncio
-    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key):
-        result = await judge_edit_quality(scenario, golden_edit, gemini_api_key)
+    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key, judge_backend):
+        result = await judge_edit_quality(
+            scenario, golden_edit, gemini_api_key, backend=judge_backend
+        )
         assert result.scores.get("INTERJECTION_ECONOMY", 0) >= 4
         assert result.passed, f"Issues: {result.issues}"
 
@@ -263,8 +272,10 @@ class TestSponsorReadMidEpisode:
         assert any("sponsor" in s.reason.lower() for s in cut_segments)
 
     @pytest.mark.asyncio
-    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key):
-        result = await judge_edit_quality(scenario, golden_edit, gemini_api_key)
+    async def test_gemini_judge(self, scenario, golden_edit, gemini_api_key, judge_backend):
+        result = await judge_edit_quality(
+            scenario, golden_edit, gemini_api_key, backend=judge_backend
+        )
         assert result.scores.get("HOST_REMOVAL", 0) >= 4
         assert result.scores.get("FLOW", 0) >= 4
         assert result.passed, f"Issues: {result.issues}"
