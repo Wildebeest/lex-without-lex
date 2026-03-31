@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import re
 import tempfile
 from pathlib import Path
 
@@ -23,6 +24,7 @@ You are a professional podcast transcription service. Transcribe the provided au
 
 Instructions:
 1. Identify speakers. The host is Lex Fridman — label him as "lex". Label the guest as "guest". If there are multiple guests, label them as "guest1", "guest2", etc.
+   Note: Lex Fridman always begins episodes with a solo introduction/monologue before the guest speaks, often followed by sponsor reads and personal reflections. Label ALL of this opening section as "lex" even though no other speaker is present.
 2. Produce segments of continuous speech by one speaker. Each segment should be a natural utterance or turn in conversation.
 3. Provide timestamps in milliseconds from the start of the audio.
 4. Capture ALL speech accurately, including filler words, false starts, and interruptions.
@@ -257,3 +259,141 @@ def _strip_code_fences(text: str) -> str:
             lines = lines[:-1]
         text = "\n".join(lines)
     return text.strip()
+
+
+# --- Published transcript fetching ---
+
+_TRANSCRIPT_URL_RE = re.compile(
+    r"https?://lexfridman\.com/[\w-]+-transcript"
+)
+
+# Matches speaker labels like: Lex Fridman [(00:01:11)](url)
+_SPEAKER_RE = re.compile(
+    r"\*\*(.+?)\s*\[\((\d{1,2}:\d{2}(?::\d{2})?)\)\]"
+)
+
+
+def extract_transcript_url(description: str) -> str | None:
+    """Extract the transcript page URL from an episode description."""
+    m = _TRANSCRIPT_URL_RE.search(description)
+    return m.group(0) if m else None
+
+
+def _parse_timestamp_ms(ts: str) -> int:
+    """Parse HH:MM:SS or MM:SS timestamp to milliseconds."""
+    parts = ts.split(":")
+    if len(parts) == 3:
+        return (int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])) * 1000
+    if len(parts) == 2:
+        return (int(parts[0]) * 60 + int(parts[1])) * 1000
+    return 0
+
+
+def _classify_speaker(name: str) -> str:
+    """Map a display name like 'Lex Fridman' to 'lex' or 'guest'."""
+    if "lex" in name.lower():
+        return "lex"
+    return "guest"
+
+
+def parse_published_transcript(html: str, episode_guid: str = "") -> Transcript:
+    """Parse the HTML/markdown of a published transcript page into a Transcript.
+
+    The page uses a pattern like:
+        **Lex Fridman [(00:00:00)](youtube_url)** transcript text here...
+        **Jensen Huang [(00:01:11)](youtube_url)** response text...
+    """
+    segments: list[TranscriptSegment] = []
+
+    # Find all speaker turns by their labeled timestamps
+    matches = list(_SPEAKER_RE.finditer(html))
+
+    for i, m in enumerate(matches):
+        speaker_name = m.group(1).strip()
+        timestamp = m.group(2)
+        start_ms = _parse_timestamp_ms(timestamp)
+        speaker = _classify_speaker(speaker_name)
+
+        # Extract text: from after this match to the start of the next match
+        text_start = m.end()
+        # Skip past the closing **
+        rest = html[text_start:]
+        # Remove leading )](url)** pattern
+        close = rest.find("**")
+        if close != -1 and close < 200:
+            rest = rest[close + 2:]
+            text_start += close + 2
+
+        if i + 1 < len(matches):
+            text_end_abs = matches[i + 1].start()
+            text = html[text_start:text_end_abs]
+        else:
+            text = rest
+
+        # Clean up the text
+        text = re.sub(r"\*\*", "", text)  # remove remaining bold markers
+        text = re.sub(r"\[.*?\]\(.*?\)", "", text)  # remove markdown links
+        text = re.sub(r"<[^>]+>", "", text)  # remove HTML tags
+        text = re.sub(r"\s+", " ", text).strip()
+
+        if not text:
+            continue
+
+        # Estimate end_ms from next segment's start, or add 30s for last segment
+        if i + 1 < len(matches):
+            end_ms = _parse_timestamp_ms(matches[i + 1].group(2))
+        else:
+            end_ms = start_ms + 30000
+
+        if end_ms <= start_ms:
+            end_ms = start_ms + 5000
+
+        segments.append(TranscriptSegment(
+            speaker=speaker,
+            text=text,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        ))
+
+    return Transcript(
+        episode_guid=episode_guid,
+        segments=segments,
+    )
+
+
+async def fetch_published_transcript(
+    description: str,
+    episode_guid: str = "",
+    client: httpx.AsyncClient | None = None,
+) -> Transcript | None:
+    """Fetch and parse a published transcript linked from the episode description.
+
+    Returns None if no transcript link is found or fetching/parsing fails.
+    """
+    url = extract_transcript_url(description)
+    if not url:
+        logger.debug("No transcript URL found in description")
+        return None
+
+    logger.info("Fetching published transcript from %s", url)
+    try:
+        if client is None:
+            async with httpx.AsyncClient(timeout=60.0) as c:
+                resp = await c.get(url)
+        else:
+            resp = await client.get(url)
+        resp.raise_for_status()
+        transcript = parse_published_transcript(resp.text, episode_guid)
+        if transcript.segments:
+            logger.info(
+                "Parsed published transcript: %d segments, %s to %s",
+                len(transcript.segments),
+                transcript.segments[0].start_ms,
+                transcript.segments[-1].end_ms,
+            )
+            return transcript
+        logger.warning("Published transcript had no parseable segments")
+        return None
+    except Exception:
+        logger.warning("Failed to fetch/parse published transcript", exc_info=True)
+        return None

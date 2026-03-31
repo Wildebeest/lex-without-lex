@@ -13,12 +13,22 @@ ANTHROPIC_MODEL = "claude-opus-4-20250514"
 EDITOR_SYSTEM_PROMPT = """\
 You are an expert podcast editor. Your job is to edit a podcast transcript to remove the host (Lex Fridman) and keep only the guest's speech, creating a seamless listening experience.
 
+Goal: MAXIMUM guest speech, MINIMUM synthetic interjections, ZERO host audio.
+
 Rules:
 1. KEEP all guest speech segments. Mark them with action "keep".
-2. CUT all of Lex's speech segments. Mark them with action "cut".
-3. When cutting Lex's speech would make the guest's subsequent response confusing or lack context, create a SHORT interjection. The interjection should be a brief, neutral question or context-setting statement (e.g., "On the topic of consciousness..." or "When asked about the future of AI..."). Keep interjections under 15 words.
-4. Do NOT create interjections for simple conversational exchanges where the guest's response is self-contained.
-5. Interjections should be placed at the timestamp where Lex's cut segment ends (which is where the next guest segment begins).
+2. CUT all of Lex's speech segments. This includes:
+   - Solo intro monologues and episode introductions
+   - Sponsor reads and advertisements
+   - Personal reflections, comments, and anecdotes by the host
+   - ALL host speech before the guest's first appearance
+   - Questions, follow-ups, and conversational turns by Lex during the interview
+3. The edited audio MUST start with the guest's first utterance. Cut EVERYTHING before it — intro, sponsors, reflections, all of it.
+4. If speaker labels seem wrong but content is clearly host speech (e.g., "Welcome to the Lex Fridman podcast", sponsor reads, first-person monologue before guest appears), treat it as Lex and CUT it.
+5. If an episode outline is provided, use it to identify non-conversation sections. Sections labeled "Introduction", "Sponsors", "Comments", "Reflections", or similar should be cut entirely.
+6. If a published transcript reference is provided, content present in the audio transcript but absent from the published transcript is likely sponsors or filler — cut it.
+7. Create interjections ONLY when the guest's response would be completely incomprehensible without context. Most exchanges do NOT need interjections — guests often restate the topic naturally. When in doubt, do NOT create an interjection. Aim for fewer than 1 interjection per 15 minutes of kept audio. Keep interjections under 15 words.
+8. Interjections should be placed at the timestamp where Lex's cut segment ends (which is where the next guest segment begins).
 
 Output ONLY valid JSON (no markdown fences) with this exact structure:
 {
@@ -38,20 +48,30 @@ async def generate_edit_list(
     transcript: Transcript,
     api_key: str,
     client: httpx.AsyncClient | None = None,
+    episode_description: str = "",
+    published_transcript: Transcript | None = None,
 ) -> EditList:
     """Send transcript to Claude Opus, get back edit decisions."""
     if client is None:
         async with httpx.AsyncClient(timeout=300.0) as c:
-            return await _do_generate(c, transcript, api_key)
-    return await _do_generate(client, transcript, api_key)
+            return await _do_generate(
+                c, transcript, api_key, episode_description, published_transcript
+            )
+    return await _do_generate(
+        client, transcript, api_key, episode_description, published_transcript
+    )
 
 
 async def _do_generate(
     client: httpx.AsyncClient,
     transcript: Transcript,
     api_key: str,
+    episode_description: str = "",
+    published_transcript: Transcript | None = None,
 ) -> EditList:
-    user_content = _build_user_prompt(transcript)
+    user_content = _build_user_prompt(
+        transcript, episode_description, published_transcript
+    )
 
     payload = {
         "model": ANTHROPIC_MODEL,
@@ -76,14 +96,63 @@ async def _do_generate(
     return parse_opus_response(response_text, transcript.episode_guid)
 
 
-def _build_user_prompt(transcript: Transcript) -> str:
-    """Build the user prompt containing the transcript."""
-    lines = ["Here is the podcast transcript to edit:\n"]
+def _extract_outline(description: str) -> str | None:
+    """Extract the OUTLINE section from an episode description."""
+    # Look for the outline section in the description
+    outline_match = re.search(
+        r"OUTLINE:?\s*</?\w[^>]*>?\s*(.*?)(?:</?p>|<b>|\Z)",
+        description,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not outline_match:
+        return None
+    raw = outline_match.group(1).strip()
+    if not raw:
+        return None
+    # Clean HTML tags, decode entities
+    raw = re.sub(r"<br\s*/?>", "\n", raw)
+    raw = re.sub(r"<[^>]+>", "", raw)
+    raw = raw.replace("&#8211;", "–").replace("&#8217;", "'").replace("&amp;", "&")
+    lines = [line.strip() for line in raw.strip().split("\n") if line.strip()]
+    return "\n".join(lines) if lines else None
+
+
+def _build_user_prompt(
+    transcript: Transcript,
+    episode_description: str = "",
+    published_transcript: Transcript | None = None,
+) -> str:
+    """Build the user prompt containing the transcript and optional context."""
+    sections: list[str] = []
+
+    # Include episode outline if available
+    if episode_description:
+        outline = _extract_outline(episode_description)
+        if outline:
+            sections.append(
+                "EPISODE OUTLINE (use timestamps to identify intro/sponsor "
+                "sections that should be CUT entirely):\n" + outline
+            )
+
+    # Include published transcript summary if available
+    if published_transcript and published_transcript.segments:
+        first = published_transcript.segments[0]
+        sections.append(
+            "PUBLISHED TRANSCRIPT REFERENCE:\n"
+            f"The official published transcript starts at {first.start_ms}ms "
+            f"with speaker '{first.speaker}'. Content present in the audio "
+            "but absent from the published transcript (e.g., sponsor reads, "
+            "personal reflections) should be CUT.\n"
+            f"First line: [{first.start_ms}-{first.end_ms}] "
+            f"{first.speaker}: {first.text[:200]}"
+        )
+
+    sections.append("AUDIO TRANSCRIPT TO EDIT:")
     for seg in transcript.segments:
-        lines.append(
+        sections.append(
             f"[{seg.start_ms}-{seg.end_ms}] {seg.speaker}: {seg.text}"
         )
-    return "\n".join(lines)
+    return "\n\n".join(sections)
 
 
 def parse_opus_response(response_text: str, episode_guid: str = "") -> EditList:
@@ -177,5 +246,47 @@ def validate_edit_list(edit_list: EditList, transcript: Transcript) -> list[str]
             warnings.append(
                 f"Interjection at {inj.insert_after_ms}ms is after episode end ({episode_end})"
             )
+
+    # Semantic check: first kept segment should be from the guest
+    kept = sorted(
+        [s for s in edit_list.segments if s.action == "keep"],
+        key=lambda s: s.start_ms,
+    )
+    if kept and kept[0].speaker == "lex":
+        warnings.append(
+            "First kept segment is from Lex — the edit should start with guest speech"
+        )
+
+    # Semantic check: no Lex segments should be kept
+    lex_kept = [
+        s for s in edit_list.segments if s.action == "keep" and s.speaker == "lex"
+    ]
+    if lex_kept:
+        warnings.append(
+            f"{len(lex_kept)} Lex segment(s) marked as 'keep' — all Lex speech should be cut"
+        )
+
+    # Semantic check: everything before guest's first transcript segment should be cut
+    guest_transcript_segs = [
+        s for s in transcript.segments if s.speaker == "guest"
+    ]
+    if guest_transcript_segs:
+        first_guest_ms = guest_transcript_segs[0].start_ms
+        intro_kept = [
+            s for s in edit_list.segments
+            if s.action == "keep" and s.end_ms <= first_guest_ms
+        ]
+        if intro_kept:
+            warnings.append(
+                f"Pre-guest intro not fully cut: {len(intro_kept)} segment(s) "
+                f"kept before first guest speech at {first_guest_ms}ms"
+            )
+
+    # Semantic check: interjection count relative to kept segments
+    if kept and len(edit_list.interjections) > len(kept) / 5:
+        warnings.append(
+            f"High interjection count ({len(edit_list.interjections)}) "
+            f"relative to kept segments ({len(kept)})"
+        )
 
     return warnings

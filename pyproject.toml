@@ -32,3 +32,7 @@ packages = ["src/lex_without_lex"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "llm_judge: tests that call the Gemini API for quality evaluation (require LWL_GEMINI_API_KEY)",
+    "integration: tests that call external APIs (Claude + Gemini)",
+]

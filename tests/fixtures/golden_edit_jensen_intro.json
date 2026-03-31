@@ -1,0 +1,20 @@
+{
+  "segments": [
+    {"action": "cut", "start_ms": 0, "end_ms": 26000, "speaker": "lex", "reason": "Host introduction"},
+    {"action": "cut", "start_ms": 26000, "end_ms": 60000, "speaker": "lex", "reason": "Sponsor read (LMNT)"},
+    {"action": "cut", "start_ms": 60000, "end_ms": 90000, "speaker": "lex", "reason": "Sponsor read (Shopify, Perplexity)"},
+    {"action": "cut", "start_ms": 90000, "end_ms": 150000, "speaker": "lex", "reason": "Personal reflections on leadership"},
+    {"action": "cut", "start_ms": 150000, "end_ms": 200000, "speaker": "lex", "reason": "Housekeeping and social media plugs"},
+    {"action": "cut", "start_ms": 200000, "end_ms": 394000, "speaker": "lex", "reason": "Host question to start conversation"},
+    {"action": "keep", "start_ms": 394000, "end_ms": 440000, "speaker": "guest", "reason": "Guest explains extreme co-design"},
+    {"action": "keep", "start_ms": 440000, "end_ms": 490000, "speaker": "guest", "reason": "Guest explains Amdahl's law"},
+    {"action": "cut", "start_ms": 490000, "end_ms": 510000, "speaker": "lex", "reason": "Host follow-up question"},
+    {"action": "keep", "start_ms": 510000, "end_ms": 570000, "speaker": "guest", "reason": "Guest describes large staff and collaboration"},
+    {"action": "cut", "start_ms": 570000, "end_ms": 585000, "speaker": "lex", "reason": "Host follow-up"},
+    {"action": "keep", "start_ms": 585000, "end_ms": 630000, "speaker": "guest", "reason": "Guest on calling out team members"},
+    {"action": "cut", "start_ms": 630000, "end_ms": 645000, "speaker": "lex", "reason": "Host asks about CUDA decision"},
+    {"action": "keep", "start_ms": 645000, "end_ms": 750000, "speaker": "guest", "reason": "Guest describes CUDA on GeForce decision"}
+  ],
+  "interjections": [],
+  "summary": "Removed 8 Lex segments (including 6.5 min intro/sponsors), kept 5 guest segments, zero interjections."
+}

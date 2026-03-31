@@ -7,6 +7,7 @@ import respx
 from lex_without_lex.editor import (
     ANTHROPIC_API_URL,
     _build_user_prompt,
+    _extract_outline,
     _strip_code_fences,
     generate_edit_list,
     parse_opus_response,
@@ -84,10 +85,17 @@ class TestStripCodeFences:
 
 
 class TestValidateEditList:
-    def test_valid_edit_list(self, sample_edit_json, sample_transcript):
+    def test_valid_edit_list_structural(self, sample_edit_json, sample_transcript):
+        """The sample edit list passes structural checks (bounds, overlaps, etc)."""
         edit_list = parse_opus_response(sample_edit_json, "ep-001")
         warnings = validate_edit_list(edit_list, sample_transcript)
-        assert warnings == []
+        # The sample fixture has 3 interjections for 4 kept segments, which
+        # triggers the high-interjection warning. Filter to structural only.
+        structural = [
+            w for w in warnings
+            if not w.startswith("High interjection")
+        ]
+        assert structural == []
 
     def test_overlapping_segments(self, sample_transcript):
         edit_list = EditList(
@@ -151,11 +159,136 @@ class TestValidateEditList:
         assert any("after episode end" in w for w in warnings)
 
 
+class TestSemanticValidation:
+    """Tests for the new semantic edit quality checks."""
+
+    def test_first_kept_is_lex_warns(self, sample_transcript):
+        edit_list = EditList(
+            episode_guid="ep-001",
+            segments=[
+                SegmentAction(action="keep", start_ms=0, end_ms=6500, speaker="lex"),
+                SegmentAction(action="keep", start_ms=6500, end_ms=9000, speaker="guest"),
+            ],
+            interjections=[],
+        )
+        warnings = validate_edit_list(edit_list, sample_transcript)
+        assert any("First kept segment is from Lex" in w for w in warnings)
+
+    def test_lex_segment_kept_warns(self, sample_transcript):
+        edit_list = EditList(
+            episode_guid="ep-001",
+            segments=[
+                SegmentAction(action="cut", start_ms=0, end_ms=6500, speaker="lex"),
+                SegmentAction(action="keep", start_ms=6500, end_ms=9000, speaker="guest"),
+                SegmentAction(action="keep", start_ms=9000, end_ms=12500, speaker="lex"),
+                SegmentAction(action="keep", start_ms=12500, end_ms=70000, speaker="guest"),
+            ],
+            interjections=[],
+        )
+        warnings = validate_edit_list(edit_list, sample_transcript)
+        assert any("Lex segment(s) marked as 'keep'" in w for w in warnings)
+
+    def test_pre_guest_intro_kept_warns(self, sample_transcript):
+        edit_list = EditList(
+            episode_guid="ep-001",
+            segments=[
+                SegmentAction(action="keep", start_ms=0, end_ms=6000, speaker="lex"),
+                SegmentAction(action="keep", start_ms=6500, end_ms=70000, speaker="guest"),
+            ],
+            interjections=[],
+        )
+        warnings = validate_edit_list(edit_list, sample_transcript)
+        assert any("Pre-guest intro not fully cut" in w for w in warnings)
+
+    def test_excessive_interjections_warns(self, sample_transcript):
+        edit_list = EditList(
+            episode_guid="ep-001",
+            segments=[
+                SegmentAction(action="keep", start_ms=6500, end_ms=9000, speaker="guest"),
+                SegmentAction(action="keep", start_ms=12500, end_ms=25000, speaker="guest"),
+            ],
+            interjections=[
+                Interjection(insert_after_ms=6500, text="Test 1"),
+                Interjection(insert_after_ms=9000, text="Test 2"),
+                Interjection(insert_after_ms=12500, text="Test 3"),
+            ],
+        )
+        warnings = validate_edit_list(edit_list, sample_transcript)
+        assert any("High interjection count" in w for w in warnings)
+
+    def test_clean_edit_no_semantic_warnings(self, sample_transcript):
+        """A properly edited list with guest-first, no kept Lex, low interjections."""
+        edit_list = EditList(
+            episode_guid="ep-001",
+            segments=[
+                SegmentAction(action="cut", start_ms=0, end_ms=6500, speaker="lex"),
+                SegmentAction(action="keep", start_ms=6500, end_ms=9000, speaker="guest"),
+                SegmentAction(action="cut", start_ms=9000, end_ms=12500, speaker="lex"),
+                SegmentAction(action="keep", start_ms=12500, end_ms=25000, speaker="guest"),
+                SegmentAction(action="cut", start_ms=25000, end_ms=28000, speaker="lex"),
+                SegmentAction(action="keep", start_ms=28000, end_ms=48000, speaker="guest"),
+                SegmentAction(action="cut", start_ms=48000, end_ms=53000, speaker="lex"),
+                SegmentAction(action="keep", start_ms=53000, end_ms=70000, speaker="guest"),
+            ],
+            interjections=[],
+        )
+        warnings = validate_edit_list(edit_list, sample_transcript)
+        assert warnings == []
+
+
+class TestExtractOutline:
+    def test_extracts_jensen_style_outline(self):
+        desc = """<p><b>OUTLINE:</b><br/>
+(00:00) &#8211; Introduction<br/>
+(00:26) &#8211; Sponsors, Comments, and Reflections<br/>
+(06:34) &#8211; Extreme co-design and rack-scale engineering<br/>
+(09:20) &#8211; How Jensen runs NVIDIA</p>
+<p><b>PODCAST LINKS:</b></p>"""
+        outline = _extract_outline(desc)
+        assert outline is not None
+        assert "Introduction" in outline
+        assert "Sponsors" in outline
+        assert "(06:34)" in outline
+
+    def test_returns_none_when_no_outline(self):
+        assert _extract_outline("Just a plain description") is None
+
+
 class TestBuildUserPrompt:
     def test_contains_transcript(self, sample_transcript):
         prompt = _build_user_prompt(sample_transcript)
         assert "Welcome." in prompt
         assert "[0-6500] lex:" in prompt
+
+    def test_includes_outline_when_provided(self, sample_transcript):
+        desc = """<p><b>OUTLINE:</b><br/>
+(00:00) &#8211; Introduction<br/>
+(06:34) &#8211; Topic</p>"""
+        prompt = _build_user_prompt(sample_transcript, episode_description=desc)
+        assert "EPISODE OUTLINE" in prompt
+        assert "Introduction" in prompt
+
+    def test_includes_published_transcript_ref(self, sample_transcript):
+        published = Transcript(
+            episode_guid="ep-001",
+            segments=[
+                TranscriptSegment(
+                    speaker="lex", text="You've propelled NVIDIA...",
+                    start_ms=33000, end_ms=42000,
+                ),
+            ],
+        )
+        prompt = _build_user_prompt(
+            sample_transcript, published_transcript=published
+        )
+        assert "PUBLISHED TRANSCRIPT REFERENCE" in prompt
+        assert "33000ms" in prompt
+
+    def test_plain_prompt_without_context(self, sample_transcript):
+        prompt = _build_user_prompt(sample_transcript)
+        assert "AUDIO TRANSCRIPT TO EDIT:" in prompt
+        assert "EPISODE OUTLINE" not in prompt
+        assert "PUBLISHED TRANSCRIPT" not in prompt
 
 
 class TestGenerateEditList:
@@ -191,3 +324,31 @@ class TestGenerateEditList:
         async with httpx.AsyncClient() as client:
             with pytest.raises(httpx.HTTPStatusError):
                 await generate_edit_list(sample_transcript, "fake-key", client=client)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_passes_episode_description(self, sample_transcript, sample_edit_json):
+        respx.post(ANTHROPIC_API_URL).respond(
+            200,
+            json={
+                "content": [{"type": "text", "text": sample_edit_json}],
+                "role": "assistant",
+            },
+        )
+
+        desc = """<p><b>OUTLINE:</b><br/>
+(00:00) &#8211; Introduction<br/>
+(06:34) &#8211; Topic</p>"""
+
+        async with httpx.AsyncClient() as client:
+            edit_list = await generate_edit_list(
+                sample_transcript, "fake-key", client=client,
+                episode_description=desc,
+            )
+
+        assert len(edit_list.segments) == 8
+        # Verify the outline was included in the API request
+        request = respx.calls[0].request
+        body = json.loads(request.content)
+        user_msg = body["messages"][0]["content"]
+        assert "EPISODE OUTLINE" in user_msg
